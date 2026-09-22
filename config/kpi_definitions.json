@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "KPI definitions. Each is a row in kpi_definition; every computed value",
+    "records the version that produced it, so any historical result traces to",
+    "the exact equation used (\u00a7320, \u00a7379, \u00a7381).",
+    "",
+    "ON PROVENANCE (\u00a7486). All three are definitional ratios from standard",
+    "Indian utility practice, not physics invented here:",
+    "",
+    "  gross unit heat rate  = coal flow (t/h) x 1000 kg/t x GCV (kcal/kg)",
+    "                          / (MW x 1000 kW/MW)",
+    "                        = coal_flow x gcv / mw   [kcal/kWh]",
+    "  auxiliary power       = aux power / gross generation x 100   [%]",
+    "  specific coal         = coal flow (t/h) x 1000 kg/t / (MW x 1000 kW)",
+    "                        = coal_flow / mw        [kg/kWh]",
+    "",
+    "None requires a steam table. Cylinder efficiency and condenser performance",
+    "DO, so under \u00a7486 they are not implemented rather than approximated.",
+    "",
+    "The GCV constant is a stated assumption, not a measurement: this",
+    "demonstrator has no coal analysis. On a real unit it comes from the daily",
+    "laboratory result, and heat rate is only as good as it is.",
+    "",
+    "inputs map an equation variable to an ATTRIBUTE name, resolved through the",
+    "asset model, so the same definition serves every unit."
+  ],
+  "definitions": [
+    {
+      "name": "GrossUnitHeatRate",
+      "description": "Gross unit heat rate: heat input per unit of electrical output. Coal flow times gross calorific value, divided by gross generation.",
+      "classification": "calculated",
+      "equation": "coal_flow * gcv / mw",
+      "inputs": {
+        "coal_flow": "CoalFlow",
+        "mw": "GrossGeneration"
+      },
+      "constants": {
+        "gcv": 3500.0
+      },
+      "engineering_unit": "kcal/kWh",
+      "reference_value": 2450.0,
+      "validity_low": 1800.0,
+      "validity_high": 5000.0,
+      "calculation_freq_ms": 60000,
+      "version": 1
+    },
+    {
+      "name": "AuxiliaryPowerConsumption",
+      "description": "Auxiliary power consumption as a percentage of gross generation.",
+      "classification": "calculated",
+      "equation": "aux / mw * 100",
+      "inputs": {
+        "aux": "AuxiliaryPower",
+        "mw": "GrossGeneration"
+      },
+      "constants": {},
+      "engineering_unit": "%",
+      "reference_value": 8.5,
+      "validity_low": 0.0,
+      "validity_high": 25.0,
+      "calculation_freq_ms": 60000,
+      "version": 1
+    },
+    {
+      "name": "SpecificCoalConsumption",
+      "description": "Coal consumed per unit of electrical output.",
+      "classification": "calculated",
+      "equation": "coal_flow / mw",
+      "inputs": {
+        "coal_flow": "CoalFlow",
+        "mw": "GrossGeneration"
+      },
+      "constants": {},
+      "engineering_unit": "kg/kWh",
+      "reference_value": 0.7,
+      "validity_low": 0.2,
+      "validity_high": 1.5,
+      "calculation_freq_ms": 60000,
+      "version": 1
+    }
+  ]
+}

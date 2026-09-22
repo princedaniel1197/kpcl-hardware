@@ -40,7 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
-        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo outage-test compression-report \
+        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo outage-test compression-report \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -69,6 +69,8 @@ help:
 	@echo "  seed-assets        load the asset hierarchy from config/ (Stage 5)"
 	@echo "  seed-quality       load quality rule thresholds       (Stage 6)"
 	@echo "  quality-demo       Stage 6 acceptance test (forces each condition)"
+	@echo "  seed-kpis          load KPI definitions, regenerate the dictionary"
+	@echo "  kpi-demo           Stage 7 acceptance test (Bad input -> Bad KPI)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
 	@echo "  compression-report Stage 4 ratios and reconstruction error"
 	@echo ""
@@ -195,6 +197,15 @@ loadtest:
 # ---------------------------------------------------------------------------
 # Collector (Stage 3)
 # ---------------------------------------------------------------------------
+
+seed-kpis:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m engine.seed_kpis
+
+# The Stage 7 acceptance test: forces coal flow Bad and watches heat rate.
+kpi-demo:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m engine.kpi_demo
 
 seed-quality:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
