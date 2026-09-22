@@ -176,7 +176,7 @@ api:
 	$(VENV)/bin/uvicorn api.main:app --host $${API_HOST:-127.0.0.1} --port $${API_PORT:-8000} --reload
 
 ui:
-	@test -f ui/package.json || { echo "ui/package.json does not exist yet — that is Stage 12."; exit 1; }
+	@test -d ui/node_modules || { echo "installing ui dependencies ..."; cd ui && npm install; }
 	cd ui && npm run dev
 
 test:

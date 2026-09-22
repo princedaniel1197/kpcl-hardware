@@ -28,11 +28,30 @@ LINK_STATE = "link_state"
 
 
 class EventStream:
+    """In-process fan-out, with an optional relay to other processes.
+
+    The visualisation runs in a different process from the collector, so events
+    have to cross a boundary. Postgres LISTEN/NOTIFY carries them: it is
+    real-time rather than polled, and it uses infrastructure that is already
+    there and already required to be running. A dropped notification is a
+    dropped *picture*, never a dropped sample — the archive is the record, and
+    this stream is only how the picture moves.
+    """
+
+    CHANNEL = "crpms_events"
+
     def __init__(self, queue_size: int = 2000) -> None:
         self._subscribers: list[asyncio.Queue] = []
         self._queue_size = queue_size
+        self._relay: asyncio.Queue | None = None
         self.dropped = 0
         self.emitted = 0
+        self.relayed = 0
+
+    def enable_relay(self, queue_size: int = 5000) -> asyncio.Queue:
+        """Start collecting events for relay to other processes."""
+        self._relay = asyncio.Queue(maxsize=queue_size)
+        return self._relay
 
     def emit(self, kind: str, **fields: Any) -> dict:
         event = {
@@ -41,6 +60,12 @@ class EventStream:
             **fields,
         }
         self.emitted += 1
+        if self._relay is not None:
+            try:
+                self._relay.put_nowait(event)
+                self.relayed += 1
+            except asyncio.QueueFull:
+                self.dropped += 1
         for queue in self._subscribers:
             try:
                 queue.put_nowait(event)

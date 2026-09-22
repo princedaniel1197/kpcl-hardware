@@ -29,6 +29,10 @@ class CollectorConfig:
     batch_linger_s: float = 0.25
 
     health_interval_s: float = 5.0
+    # The event stream is served directly by the collector, NOT relayed through
+    # the archive: an archive outage must stay visible.
+    event_host: str = "127.0.0.1"
+    event_port: int = 8090
     reconnect_delay_s: float = 2.0
     instance: str = "primary"
 
@@ -57,4 +61,6 @@ class CollectorConfig:
                                                cls.buffer_max_rows)),
             batch_size=int(os.environ.get("COLLECTOR_BATCH", cls.batch_size)),
             instance=os.environ.get("COLLECTOR_INSTANCE", cls.instance),
+            event_port=int(os.environ.get("COLLECTOR_EVENT_PORT",
+                                          cls.event_port)),
         )

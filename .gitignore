@@ -29,3 +29,6 @@ fat/evidence/tmp/
 
 # macOS
 .DS_Store
+
+# Vite build output
+ui/dist/

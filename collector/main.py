@@ -160,10 +160,13 @@ async def run(config: CollectorConfig) -> None:
     session = ReadOnlySession(config.endpoint, pipeline.on_sample)
 
     log.info("collector instance: %s", config.instance)
+    from collector.event_server import serve as serve_events
     await asyncio.gather(
         pipeline.run_forwarder(),
         _health_loop(publisher, pipeline),
         _heartbeat(config.dsn, config.instance, pipeline),
+        serve_events(stream, pipeline, config.instance,
+                     config.event_host, config.event_port),
         _opcua_supervisor(session, tags, config.reconnect_delay_s),
     )
 
