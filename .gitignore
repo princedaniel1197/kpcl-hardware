@@ -1,0 +1,31 @@
+# Local environment — contains the dev database password.
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Collector store-and-forward buffer (Stage 3). Runtime state, never committed.
+*.sqlite
+*.sqlite3
+buffer/
+
+# Node / UI (Stage 12)
+node_modules/
+ui/dist/
+ui/.vite/
+
+# PlatformIO / Arduino (Stage 10)
+.pio/
+firmware/.pio/
+
+# FAT evidence captured at run time is committed deliberately, not swept up.
+fat/evidence/tmp/
+
+# macOS
+.DS_Store

@@ -1,0 +1,156 @@
+# CRPMS Demonstrator — Orianode Technologies
+# Stage 0 of CRPMS_Demonstrator_Build_Plan.md.
+#
+# Targets required by Stage 0: up, down, sim, collector, api, ui, test.
+# The stage targets refuse to pretend: if the stage that builds a component has
+# not been done, the target says so instead of failing obscurely.
+
+SHELL := /bin/bash
+.DEFAULT_GOAL := help
+
+PYTHON  ?= python3
+VENV    := .venv
+VPY     := $(VENV)/bin/python
+
+# Docker Desktop only symlinks its CLI into /usr/local/bin once it has been
+# launched and its licence accepted. The binary exists inside the bundle before
+# that, so fall back to it rather than reporting Docker as absent when it is not.
+DOCKER_APP_BIN_DIR := /Applications/Docker.app/Contents/Resources/bin
+DOCKER_APP_BIN     := $(DOCKER_APP_BIN_DIR)/docker
+
+# docker shells out to helpers that live beside it — docker-credential-desktop
+# among them — so the bundle's bin directory must be on PATH, not just the one
+# binary. Appended, so a real /usr/local/bin/docker still wins if it appears.
+ifneq (,$(wildcard $(DOCKER_APP_BIN)))
+export PATH := $(PATH):$(DOCKER_APP_BIN_DIR)
+endif
+
+DOCKER ?= $(shell command -v docker 2>/dev/null || (test -x $(DOCKER_APP_BIN) && echo $(DOCKER_APP_BIN)))
+COMPOSE ?= $(DOCKER) compose
+
+# Local settings. `make up` creates .env from .env.example on first run.
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
+POSTGRES_USER ?= crpms
+POSTGRES_DB   ?= crpms
+POSTGRES_PORT ?= 5432
+DB_CONTAINER  := crpms-timescaledb
+
+.PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test
+
+help:
+	@echo "CRPMS Demonstrator — make targets"
+	@echo ""
+	@echo "  doctor      check that this machine has Python 3.11+, Docker and Node 20+"
+	@echo "  install     create $(VENV) and install the project with dev extras"
+	@echo "  up          start TimescaleDB and wait until it accepts connections"
+	@echo "  down        stop TimescaleDB (the named volume is kept)"
+	@echo "  psql        open a psql shell inside the running container"
+	@echo "  logs        follow TimescaleDB logs"
+	@echo "  clean       stop and DESTROY the archive volume (needs CONFIRM=yes)"
+	@echo ""
+	@echo "  sim         run the OPC UA DCS simulator        (Stage 1)"
+	@echo "  collector   run the acquisition collector       (Stage 3)"
+	@echo "  api         run the FastAPI service             (Stage 12)"
+	@echo "  ui          run the React visualisation         (Stage 12)"
+	@echo "  test        run the test suite"
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+doctor:
+	@echo "--- prerequisites ---"
+	@if command -v $(PYTHON) >/dev/null 2>&1 && $(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)'; then \
+	  echo "  OK    python 3.11+   $$($(PYTHON) --version) ($$(command -v $(PYTHON)))"; \
+	else \
+	  echo "  FAIL  python 3.11+   found $$(command -v $(PYTHON) >/dev/null 2>&1 && $(PYTHON) --version 2>&1 || echo none)"; \
+	  echo "        set PYTHON=/path/to/python3.11 or install Python 3.11+"; \
+	fi
+	@if [ -n "$(DOCKER)" ]; then \
+	  echo "  OK    docker         $$($(DOCKER) --version)"; \
+	  test -e /usr/local/bin/docker -o -e $$HOME/.docker/bin/docker || \
+	    echo "        note: no docker outside Docker.app — make uses the bundled CLI"; \
+	  if $(DOCKER) ps >/dev/null 2>&1; then echo "  OK    docker daemon   running"; \
+	  else echo "  FAIL  docker daemon   not running — open Docker Desktop and accept the licence"; fi; \
+	else \
+	  echo "  FAIL  docker         not installed"; \
+	fi
+	@if command -v node >/dev/null 2>&1; then echo "  OK    node           $$(node --version)"; \
+	else echo "  FAIL  node           not installed (needed from Stage 12)"; fi
+
+env:
+	@if [ ! -f .env ]; then cp .env.example .env; echo "created .env from .env.example"; fi
+
+up: env
+	@test -n "$(DOCKER)" || { echo "docker is not installed — run 'make doctor'"; exit 1; }
+	@$(DOCKER) ps >/dev/null 2>&1 || { \
+	  echo "the Docker daemon is not reachable — open Docker Desktop, accept the licence,"; \
+	  echo "wait for the whale icon to settle, then re-run 'make up'."; exit 1; }
+	$(COMPOSE) up -d
+	@$(MAKE) --no-print-directory wait-db
+	@echo "TimescaleDB ready on port $(POSTGRES_PORT) — psql: make psql"
+
+wait-db:
+	@printf "waiting for TimescaleDB "
+	@for i in $$(seq 1 60); do \
+	  if $(DOCKER) exec $(DB_CONTAINER) pg_isready -U $(POSTGRES_USER) -d $(POSTGRES_DB) >/dev/null 2>&1; then \
+	    echo " ready"; exit 0; \
+	  fi; \
+	  printf "."; sleep 1; \
+	done; \
+	echo " TIMED OUT"; $(DOCKER) logs --tail 40 $(DB_CONTAINER); exit 1
+
+down:
+	$(COMPOSE) down
+
+logs:
+	$(COMPOSE) logs -f timescaledb
+
+psql:
+	$(DOCKER) exec -it $(DB_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+
+# Destructive: the archive volume holds every sample. Explicit opt-in only.
+clean:
+	@if [ "$(CONFIRM)" != "yes" ]; then \
+	  echo "This destroys the crpms-pgdata volume and every archived sample."; \
+	  echo "Re-run with: make clean CONFIRM=yes"; exit 1; \
+	fi
+	$(COMPOSE) down -v
+
+venv:
+	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' || { \
+	  echo "Python 3.11+ required; $(PYTHON) is $$($(PYTHON) --version 2>&1)."; \
+	  echo "Install Python 3.11+ and retry, or: make install PYTHON=/path/to/python3.11"; exit 1; }
+	@test -d $(VENV) || $(PYTHON) -m venv $(VENV)
+
+install: venv
+	$(VPY) -m pip install --upgrade pip
+	$(VPY) -m pip install -e ".[dev]"
+
+# ---------------------------------------------------------------------------
+# Components. Each is built by the stage named in its guard.
+# ---------------------------------------------------------------------------
+
+sim:
+	@test -f sim/server.py || { echo "sim/server.py does not exist yet — that is Stage 1."; exit 1; }
+	$(VPY) -m sim.server
+
+collector:
+	@test -f collector/main.py || { echo "collector/main.py does not exist yet — that is Stage 3."; exit 1; }
+	$(VPY) -m collector.main
+
+api:
+	@test -f api/main.py || { echo "api/main.py does not exist yet — that is Stage 12."; exit 1; }
+	$(VENV)/bin/uvicorn api.main:app --host $${API_HOST:-127.0.0.1} --port $${API_PORT:-8000} --reload
+
+ui:
+	@test -f ui/package.json || { echo "ui/package.json does not exist yet — that is Stage 12."; exit 1; }
+	cd ui && npm run dev
+
+test:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m pytest

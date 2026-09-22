@@ -1,0 +1,51 @@
+# CRPMS Demonstrator — Orianode Technologies
+# Stage 0 (Environment) of CRPMS_Demonstrator_Build_Plan.md.
+#
+# Dependency set is exactly the one the build plan names. Nothing is added here
+# "in case it is useful later"; a package arrives when the stage that needs it does.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orianode-crpms"
+version = "0.0.0"
+description = "CRPMS Demonstrator — a miniature but architecturally complete power-plant monitoring system"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Orianode Technologies" }]
+
+# The packages named in Stage 0 of the build plan. asyncio throughout;
+# FastAPI is the only web framework.
+dependencies = [
+    "asyncua>=1.1",          # OPC UA client and server (sim/, collector/)
+    "pymodbus>=3.6",         # Modbus TCP/RTU master for the ESP32 rig (Stage 10)
+    "psycopg[binary]>=3.1",  # TimescaleDB access (archive/, collector/)
+    "fastapi>=0.110",        # the only web framework in this project
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Every stage is gated on a test that must actually run, so the test runner is
+# part of the environment, not an afterthought.
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools]
+packages = ["sim", "collector", "archive", "engine", "api", "scraper"]
+
+[tool.pytest.ini_options]
+testpaths = ["sim", "collector", "archive", "engine", "api", "fat", "scraper"]
+python_files = ["test_*.py", "*_test.py"]
+asyncio_mode = "auto"
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

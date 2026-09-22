@@ -1,0 +1,46 @@
+# CRPMS Demonstrator — TimescaleDB archive.
+# Stage 0 of CRPMS_Demonstrator_Build_Plan.md.
+#
+# An explicit project name is set because the checkout directory name is not a
+# safe compose project name and must not be allowed to decide the volume name.
+
+name: orianode-crpms
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: crpms-timescaledb
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crpms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crpms}
+      POSTGRES_DB: ${POSTGRES_DB:-crpms}
+      # This system's entire argument is about timestamps. The server keeps UTC
+      # so that no layer is ever tempted to interpret a naive local time.
+      TZ: UTC
+      PGTZ: UTC
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - log_timezone=UTC
+    volumes:
+      - crpms-pgdata:/var/lib/postgresql/data
+      # Numbered SQL migrations (Stage 2) are readable from inside the container
+      # so they can be applied with psql. They are NOT auto-run on first boot:
+      # applying a migration is a deliberate act with a recorded outcome.
+      - ./archive/migrations:/migrations:ro
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crpms} -d ${POSTGRES_DB:-crpms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  crpms-pgdata:
+    name: crpms-pgdata
