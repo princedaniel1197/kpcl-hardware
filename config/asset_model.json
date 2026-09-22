@@ -264,6 +264,86 @@
           "description": "Turbine bearing vibration velocity"
         }
       ]
+    },
+    {
+      "name": "BenchRig",
+      "level": "Equipment",
+      "description": "Instrumented bench rig: fans, current, vibration, two temperature probes",
+      "attributes": [
+        {
+          "name": "LoadCurrent",
+          "tag_pattern": "RIG_CURRENT",
+          "engineering_unit": "A",
+          "range_low": 0.0,
+          "range_high": 5.0,
+          "scan_rate_ms": 1000,
+          "exc_dev": 0.01,
+          "comp_dev": 0.02,
+          "max_time_ms": 30000,
+          "source_system": "opcua",
+          "description": "Bench rig total load current"
+        },
+        {
+          "name": "Vibration",
+          "tag_pattern": "RIG_VIBRATION",
+          "engineering_unit": "mm/s",
+          "range_low": 0.0,
+          "range_high": 50.0,
+          "scan_rate_ms": 1000,
+          "exc_dev": 0.05,
+          "comp_dev": 0.1,
+          "max_time_ms": 30000,
+          "source_system": "opcua",
+          "description": "Bench rig fan vibration"
+        },
+        {
+          "name": "HubTemperature",
+          "tag_pattern": "RIG_HUB_TEMP",
+          "engineering_unit": "degC",
+          "range_low": -55.0,
+          "range_high": 125.0,
+          "scan_rate_ms": 1000,
+          "exc_dev": 0.1,
+          "comp_dev": 0.2,
+          "max_time_ms": 30000,
+          "source_system": "opcua",
+          "description": "Fan motor hub temperature"
+        },
+        {
+          "name": "AmbientTemperature",
+          "tag_pattern": "RIG_AMBIENT_TEMP",
+          "engineering_unit": "degC",
+          "range_low": -55.0,
+          "range_high": 125.0,
+          "scan_rate_ms": 1000,
+          "exc_dev": 0.1,
+          "comp_dev": 0.2,
+          "max_time_ms": 30000,
+          "source_system": "opcua",
+          "description": "Ambient temperature"
+        },
+        {
+          "name": "SupplyVoltage",
+          "tag_pattern": "RIG_SUPPLY_V",
+          "engineering_unit": "V",
+          "range_low": 0.0,
+          "range_high": 15.0,
+          "scan_rate_ms": 1000,
+          "exc_dev": 0.02,
+          "comp_dev": 0.05,
+          "max_time_ms": 30000,
+          "source_system": "opcua",
+          "description": "Bench rig supply voltage"
+        },
+        {
+          "name": "Running",
+          "tag_pattern": "RIG_RUNNING",
+          "scan_rate_ms": 1000,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Bench rig run/stop state"
+        }
+      ]
     }
   ],
   "composition": [
@@ -334,6 +414,16 @@
       "context": {
         "station": "RTPS",
         "unit": "U2"
+      }
+    },
+    {
+      "template": "BenchRig",
+      "asset_code": "KPCL-RTPS-RIG",
+      "name": "Orianode bench rig",
+      "parent_code": "KPCL-RTPS",
+      "context": {
+        "station": "RTPS",
+        "rig": "RIG"
       }
     }
   ]

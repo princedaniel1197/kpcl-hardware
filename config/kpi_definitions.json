@@ -22,7 +22,8 @@
     "laboratory result, and heat rate is only as good as it is.",
     "",
     "inputs map an equation variable to an ATTRIBUTE name, resolved through the",
-    "asset model, so the same definition serves every unit."
+    "asset model, so the same definition serves every unit.",
+    "MotorThermalRise is the bench rig's KPI. It is a difference of two measured temperatures -- no steam table, nothing invented."
   ],
   "definitions": [
     {
@@ -76,6 +77,23 @@
       "validity_low": 0.2,
       "validity_high": 1.5,
       "calculation_freq_ms": 60000,
+      "version": 1
+    },
+    {
+      "name": "MotorThermalRise",
+      "description": "Temperature rise of the fan motor hub above ambient. The bench rig's equivalent of a thermal performance figure: it consumes both DS18B20 probes, so unplugging either makes it Bad rather than merely wrong.",
+      "classification": "calculated",
+      "equation": "hub - ambient",
+      "inputs": {
+        "hub": "HubTemperature",
+        "ambient": "AmbientTemperature"
+      },
+      "constants": {},
+      "engineering_unit": "degC",
+      "reference_value": 18.0,
+      "validity_low": -5.0,
+      "validity_high": 80.0,
+      "calculation_freq_ms": 10000,
       "version": 1
     }
   ]

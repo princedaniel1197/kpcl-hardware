@@ -135,8 +135,13 @@ class ReadOnlySession:
         by_interval: dict[tuple[float, float | None], list] = {}
 
         for tag in tags:
+            # The parent object is configuration. It used to be the literal
+            # "Unit1", which meant adding any second unit needed a code change
+            # -- exactly what rule 7 forbids.
+            parent = tag.get("source_path") or "Unit1"
             try:
-                node = await objects.get_child([f"{idx}:Unit1", f"{idx}:{tag['name']}"])
+                node = await objects.get_child(
+                    [f"{idx}:{parent}", f"{idx}:{tag['name']}"])
             except ua.UaError:
                 log.warning("tag %s is not in the server address space", tag["name"])
                 continue

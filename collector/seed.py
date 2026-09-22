@@ -17,17 +17,22 @@ import psycopg
 DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "unit1_tags.json"
 
 FIELDS = ("description", "engineering_unit", "range_low", "range_high",
-          "source_system", "scan_rate_ms", "exc_dev", "comp_dev", "max_time_ms")
+          "source_system", "scan_rate_ms", "exc_dev", "comp_dev", "max_time_ms",
+          "source_path")
 
 
 def seed(conn: psycopg.Connection, tags: list[dict], actor: str) -> tuple[int, int]:
     created = updated = 0
     with conn.cursor() as cur:
         for spec in tags:
-            cur.execute("SELECT id, description, engineering_unit, range_low,"
-                        " range_high, source_system, scan_rate_ms, exc_dev,"
-                        " comp_dev, max_time_ms FROM tag WHERE name = %s",
-                        (spec["name"],))
+            # Built from FIELDS rather than written out, so adding a column
+            # to FIELDS cannot leave the query behind. It already did once:
+            # source_path was added to FIELDS and the SELECT still returned the
+            # old nine columns, which failed with an index error rather than a
+            # useful message.
+            cur.execute(
+                "SELECT id, " + ", ".join(FIELDS) + " FROM tag WHERE name = %s",
+                (spec["name"],))
             existing = cur.fetchone()
 
             if existing is None:

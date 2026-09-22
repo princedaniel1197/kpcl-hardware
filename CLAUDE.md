@@ -148,6 +148,9 @@ The second list is what makes the first list believable.
 
 ## Status
 
-Stage: 9 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-09-omf.md`).
-Stages 0 to 8 complete; records in `fat/records/`. Stage 10 has not been begun.
+Stage: 10 — BUILT, acceptance test BLOCKED on the physical rig
+(`fat/records/stage-10-hardware-rig.md`). Firmware, bridge and configuration are
+complete and verified against a stand-in; no probe has been unplugged because the
+rig has not been built. Stages 0 to 9 complete; records in `fat/records/`.
+Stage 11 has not been begun.
 Update this line as stages complete.

@@ -5,7 +5,8 @@
     "ExcDev = CompDev/2 is the PI convention (\u00a7442).",
     "CompDev is set per tag on operational grounds; see _comp_dev_rationale.",
     "A CompDev below a tag's noise floor guarantees archiving noise. That is",
-    "done deliberately for U1_BEARING_VIB, where the detail is worth the cost."
+    "done deliberately for U1_BEARING_VIB, where the detail is worth the cost.",
+    "RIG_* tags come from the bench rig via the Modbus bridge and live under the BenchRig object; source_path says so."
   ],
   "tags": [
     {
@@ -21,7 +22,8 @@
       "max_time_ms": 10000,
       "_comp_dev_rationale": "1 MW on a 210 MW unit; below that is noise",
       "_noise_sigma": 0.35,
-      "_max_time_rationale": "10 s heartbeat: generation is the most watched tag, and a stuck transmitter must show as frozen rather than merely quiet"
+      "_max_time_rationale": "10 s heartbeat: generation is the most watched tag, and a stuck transmitter must show as frozen rather than merely quiet",
+      "source_path": "Unit1"
     },
     {
       "name": "U1_TURB_SPEED",
@@ -35,7 +37,8 @@
       "comp_dev": 3.6,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "3 rpm at 3000; speed control band is wider",
-      "_noise_sigma": 1.2
+      "_noise_sigma": 1.2,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_DRUM_PRESS",
@@ -49,7 +52,8 @@
       "comp_dev": 0.9,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~3x noise; drum swings that matter are larger",
-      "_noise_sigma": 0.3
+      "_noise_sigma": 0.3,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_MS_TEMP",
@@ -63,7 +67,8 @@
       "comp_dev": 2.4,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "main steam temperature control band is +/-5 degC",
-      "_noise_sigma": 0.8
+      "_noise_sigma": 0.8,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_MS_PRESS",
@@ -77,7 +82,8 @@
       "comp_dev": 0.75,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~3x noise floor",
-      "_noise_sigma": 0.25
+      "_noise_sigma": 0.25,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_FEEDWATER_FLOW",
@@ -91,7 +97,8 @@
       "comp_dev": 7.5,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~1% of full-load flow",
-      "_noise_sigma": 2.5
+      "_noise_sigma": 2.5,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_COAL_FLOW",
@@ -105,7 +112,8 @@
       "comp_dev": 1.8,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~3x noise; mill output resolution",
-      "_noise_sigma": 0.6
+      "_noise_sigma": 0.6,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_AUX_POWER",
@@ -119,7 +127,8 @@
       "comp_dev": 0.24,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~3x noise floor",
-      "_noise_sigma": 0.08
+      "_noise_sigma": 0.08,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_CONDENSER_VAC",
@@ -133,7 +142,8 @@
       "comp_dev": 3.3,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~3x noise; vacuum trends slowly",
-      "_noise_sigma": 1.1
+      "_noise_sigma": 1.1,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_GEN_STATOR_TEMP",
@@ -147,7 +157,8 @@
       "comp_dev": 0.75,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "~3x noise; stator temperature moves slowly",
-      "_noise_sigma": 0.25
+      "_noise_sigma": 0.25,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_BEARING_VIB",
@@ -161,7 +172,8 @@
       "comp_dev": 0.05,
       "max_time_ms": 60000,
       "_comp_dev_rationale": "kept below the noise floor on purpose: vibration detail matters more than ratio",
-      "_noise_sigma": 0.18
+      "_noise_sigma": 0.18,
+      "source_path": "Unit1"
     },
     {
       "name": "U1_BOILER_LIGHTUP",
@@ -174,7 +186,8 @@
       "exc_dev": null,
       "comp_dev": null,
       "max_time_ms": 300000,
-      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)"
+      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)",
+      "source_path": "Unit1"
     },
     {
       "name": "U1_TURB_ROLLING",
@@ -187,7 +200,8 @@
       "exc_dev": null,
       "comp_dev": null,
       "max_time_ms": 300000,
-      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)"
+      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)",
+      "source_path": "Unit1"
     },
     {
       "name": "U1_BREAKER_CLOSED",
@@ -200,7 +214,8 @@
       "exc_dev": null,
       "comp_dev": null,
       "max_time_ms": 300000,
-      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)"
+      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)",
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_LINK_STATE",
@@ -212,7 +227,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_BUFFER_DEPTH",
@@ -224,7 +240,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_BUFFER_PCT",
@@ -236,7 +253,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_SAMPLES_PER_SEC",
@@ -248,7 +266,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_LAST_FORWARD_AGE",
@@ -260,7 +279,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_CPU_PCT",
@@ -272,7 +292,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_MEM_MB",
@@ -284,7 +305,8 @@
       "scan_rate_ms": 5000,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
     },
     {
       "name": "COLLECTOR_GAPS",
@@ -294,6 +316,85 @@
       "range_high": null,
       "source_system": "collector",
       "scan_rate_ms": 5000,
+      "exc_dev": null,
+      "comp_dev": null,
+      "max_time_ms": 60000,
+      "source_path": "Unit1"
+    },
+    {
+      "name": "RIG_CURRENT",
+      "description": "Bench rig total load current (ACS712 5 A)",
+      "engineering_unit": "A",
+      "range_low": 0.0,
+      "range_high": 5.0,
+      "source_system": "opcua",
+      "source_path": "BenchRig",
+      "scan_rate_ms": 1000,
+      "exc_dev": 0.01,
+      "comp_dev": 0.02,
+      "max_time_ms": 30000
+    },
+    {
+      "name": "RIG_VIBRATION",
+      "description": "Bench rig fan vibration (MPU-6050, approximate velocity)",
+      "engineering_unit": "mm/s",
+      "range_low": 0.0,
+      "range_high": 50.0,
+      "source_system": "opcua",
+      "source_path": "BenchRig",
+      "scan_rate_ms": 1000,
+      "exc_dev": 0.05,
+      "comp_dev": 0.1,
+      "max_time_ms": 30000
+    },
+    {
+      "name": "RIG_HUB_TEMP",
+      "description": "Fan motor hub temperature (DS18B20)",
+      "engineering_unit": "degC",
+      "range_low": -55.0,
+      "range_high": 125.0,
+      "source_system": "opcua",
+      "source_path": "BenchRig",
+      "scan_rate_ms": 1000,
+      "exc_dev": 0.1,
+      "comp_dev": 0.2,
+      "max_time_ms": 30000
+    },
+    {
+      "name": "RIG_AMBIENT_TEMP",
+      "description": "Ambient temperature (DS18B20)",
+      "engineering_unit": "degC",
+      "range_low": -55.0,
+      "range_high": 125.0,
+      "source_system": "opcua",
+      "source_path": "BenchRig",
+      "scan_rate_ms": 1000,
+      "exc_dev": 0.1,
+      "comp_dev": 0.2,
+      "max_time_ms": 30000
+    },
+    {
+      "name": "RIG_SUPPLY_V",
+      "description": "Bench rig supply voltage",
+      "engineering_unit": "V",
+      "range_low": 0.0,
+      "range_high": 15.0,
+      "source_system": "opcua",
+      "source_path": "BenchRig",
+      "scan_rate_ms": 1000,
+      "exc_dev": 0.02,
+      "comp_dev": 0.05,
+      "max_time_ms": 30000
+    },
+    {
+      "name": "RIG_RUNNING",
+      "description": "Bench rig run/stop state",
+      "engineering_unit": null,
+      "range_low": 0,
+      "range_high": 1,
+      "source_system": "opcua",
+      "source_path": "BenchRig",
+      "scan_rate_ms": 1000,
       "exc_dev": null,
       "comp_dev": null,
       "max_time_ms": 60000

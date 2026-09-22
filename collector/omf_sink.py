@@ -89,12 +89,13 @@ class OmfSink:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT id, name, scan_rate_ms, exc_dev, comp_dev, max_time_ms,"
-                " description, engineering_unit FROM tag"
+                " description, engineering_unit, source_path FROM tag"
                 " WHERE source_system = ANY(%s) ORDER BY name", (list(systems),))
             rows = await cur.fetchall()
         return [{"id": r[0], "name": r[1], "scan_rate_ms": r[2],
                  "exc_dev": r[3], "comp_dev": r[4], "max_time_ms": r[5],
-                 "description": r[6], "engineering_unit": r[7]} for r in rows]
+                 "description": r[6], "engineering_unit": r[7],
+                 "source_path": r[8]} for r in rows]
 
     async def tags(self) -> list[dict]:
         """Tags to SUBSCRIBE to: the ones coming from the source."""

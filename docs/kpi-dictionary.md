@@ -5,7 +5,7 @@ Do not edit by hand: the database is the source of truth, and a
 hand-edited copy would describe equations that are not the ones being
 computed.
 
-Generated 2026-09-22T17:52:33+00:00.
+Generated 2026-09-22T18:53:40+00:00.
 
 ## AuxiliaryPowerConsumption  (v1)
 
@@ -113,6 +113,24 @@ Gross unit heat rate: heat input per unit of electrical output. Coal flow times 
 | Bad-data treatment | `propagate` |
 | Calculation frequency | 60000 ms |
 | Valid from | 2026-09-22T17:52:12+00:00 |
+| Valid to | current |
+
+## MotorThermalRise  (v1)
+
+Temperature rise of the fan motor hub above ambient. The bench rig's equivalent of a thermal performance figure: it consumes both DS18B20 probes, so unplugging either makes it Bad rather than merely wrong.
+
+| | |
+|---|---|
+| Classification | `calculated` |
+| Equation | `hub - ambient` |
+| Engineering unit | degC |
+| Inputs | `hub` = HubTemperature, `ambient` = AmbientTemperature |
+| Constants | — |
+| Reference value | 18.0 |
+| Validity range | [-5.0, 80.0] |
+| Bad-data treatment | `propagate` |
+| Calculation frequency | 10000 ms |
+| Valid from | 2026-09-22T18:53:40+00:00 |
 | Valid to | current |
 
 ## SpecificCoalConsumption  (v1)
