@@ -40,7 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
-        migrate migrate-status loadtest \
+        migrate migrate-status loadtest seed-tags outage-test \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -64,6 +64,9 @@ help:
 	@echo "  migrate            apply archive SQL migrations    (Stage 2)"
 	@echo "  migrate-status     list applied and pending migrations"
 	@echo "  loadtest           Stage 2 acceptance test: 10M rows (~1 GB)"
+	@echo ""
+	@echo "  seed-tags          load tag configuration from config/  (Stage 3)"
+	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
 	@echo ""
 	@echo "  scraper-migrate    create the SLDC recorder tables"
 	@echo "  scraper-once       one poll, then exit"
@@ -184,6 +187,19 @@ migrate-status:
 loadtest:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m archive.loadtest
+
+# ---------------------------------------------------------------------------
+# Collector (Stage 3)
+# ---------------------------------------------------------------------------
+
+seed-tags:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m collector.seed
+
+# The Stage 3 acceptance test. STOPS THE DATABASE CONTAINER for three minutes.
+outage-test:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m collector.outage_test
 
 # ---------------------------------------------------------------------------
 # Karnataka SLDC generation recorder (scraper/). Not a build-plan stage.

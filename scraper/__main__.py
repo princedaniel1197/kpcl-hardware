@@ -37,17 +37,20 @@ def main(argv: list[str] | None = None) -> int:
                           http_timeout_s=args.timeout)
 
     if args.once:
-        import psycopg
         from scraper import store
         from scraper.poll import poll_once
         import time as _time
 
         async def one() -> int:
-            async with await psycopg.AsyncConnection.connect(store.dsn()) as conn:
-                rows = await poll_once(conn, config,
+            from scraper.poll import report_daily
+            archive = store.Archive()
+            try:
+                rows = await poll_once(archive, config,
                                        deadline=_time.monotonic() + config.interval_s)
-                await __import__("scraper.poll", fromlist=["report_daily"]).report_daily(conn)
+                await report_daily(archive)
                 return rows
+            finally:
+                await archive.close()
 
         asyncio.run(one())
         return 0

@@ -90,7 +90,7 @@ async def fetch(url: str, timeout: float) -> tuple[str, int]:
 
 
 async def poll_once(
-    conn: psycopg.AsyncConnection,
+    archive: store.Archive,
     config: PollerConfig,
     deadline: float,
 ) -> int:
@@ -127,18 +127,19 @@ async def poll_once(
             # fetch time; that would record a stale page as current data.
             duration = int((time.monotonic() - started) * 1000)
             await store.log_attempt(
-                conn, attempt_ts=attempt_ts, outcome="parse_error",
+                archive, attempt_ts=attempt_ts, outcome="parse_error",
                 http_status=status, duration_ms=duration, detail=str(exc))
             log.error("page carried no usable timestamp: %s", exc)
             return 0
 
         try:
-            rows = await store.write_reading(conn, page)
+            rows = await store.write_reading(archive, page)
         except psycopg.Error as exc:
+            # write_reading has already discarded the broken connection;
+            # log_attempt is best-effort and reconnects if it can.
             duration = int((time.monotonic() - started) * 1000)
-            await conn.rollback()
             await store.log_attempt(
-                conn, attempt_ts=attempt_ts, outcome="db_error",
+                archive, attempt_ts=attempt_ts, outcome="db_error",
                 http_status=status, page_source_ts=page.source_ts,
                 duration_ms=duration, detail=str(exc))
             log.error("database write failed: %s", exc)
@@ -146,7 +147,7 @@ async def poll_once(
 
         duration = int((time.monotonic() - started) * 1000)
         await store.log_attempt(
-            conn, attempt_ts=attempt_ts, outcome="ok", http_status=status,
+            archive, attempt_ts=attempt_ts, outcome="ok", http_status=status,
             rows_written=rows, page_source_ts=page.source_ts,
             duration_ms=duration,
             detail=f"page age {page.page_age.total_seconds():.0f}s")
@@ -162,16 +163,22 @@ async def poll_once(
 
     duration = int((time.monotonic() - started) * 1000)
     await store.log_attempt(
-        conn, attempt_ts=attempt_ts, outcome="http_error", http_status=status,
+        archive, attempt_ts=attempt_ts, outcome="http_error", http_status=status,
         duration_ms=duration, detail=last_error)
     log.error("tick abandoned after retries: %s", last_error)
     return 0
 
 
-async def report_daily(conn: psycopg.AsyncConnection) -> None:
+async def report_daily(archive: store.Archive) -> None:
     """Log yesterday's and today's row counts, so a glance at the log says
     whether the recorder is alive and how much it captured."""
-    for row in await store.daily_counts(conn, days=2):
+    try:
+        rows = await store.daily_counts(archive, days=2)
+    except psycopg.Error as exc:
+        await archive.discard()
+        log.warning("daily report unavailable: %s", exc)
+        return
+    for row in rows:
         ist_date, rows, good, readings, first, last = row
         log.info(
             "DAILY %s: %d rows (%d good) from %d distinct page timestamps, "
@@ -185,7 +192,8 @@ async def run(config: PollerConfig | None = None) -> None:
     config = config or PollerConfig()
     log.info("recorder starting: %s every %.0fs", config.url, config.interval_s)
 
-    async with await psycopg.AsyncConnection.connect(store.dsn()) as conn:
+    archive = store.Archive()
+    try:
         origin = time.monotonic()
         tick = 0
         last_report_date: dt.date | None = None
@@ -204,12 +212,21 @@ async def run(config: PollerConfig | None = None) -> None:
                 tick += missed
 
             next_due = origin + (tick + 1) * config.interval_s
-            await poll_once(conn, config, deadline=next_due)
+            # A tick must never be able to kill the recorder. Anything that
+            # escapes poll_once is logged and the schedule continues; the
+            # database coming back is then just the next tick succeeding.
+            try:
+                await poll_once(archive, config, deadline=next_due)
+            except Exception:
+                log.exception("tick failed; continuing on schedule")
+                await archive.discard()
 
             today_ist = dt.datetime.now(dt.timezone.utc).astimezone(
                 dt.timezone(dt.timedelta(hours=5, minutes=30))).date()
             if last_report_date != today_ist:
-                await report_daily(conn)
+                await report_daily(archive)
                 last_report_date = today_ist
 
             tick += 1
+    finally:
+        await archive.close()
