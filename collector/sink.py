@@ -87,10 +87,10 @@ class ArchiveSink:
         assert self._conn is not None
         async with self._conn.cursor() as cur:
             await cur.execute(
-                "SELECT id, name, scan_rate_ms, exc_dev, comp_dev "
+                "SELECT id, name, scan_rate_ms, exc_dev, comp_dev, max_time_ms "
                 "FROM tag WHERE source_system = %s ORDER BY name", ("opcua",))
             return [
                 {"id": r[0], "name": r[1], "scan_rate_ms": r[2],
-                 "exc_dev": r[3], "comp_dev": r[4]}
+                 "exc_dev": r[3], "comp_dev": r[4], "max_time_ms": r[5]}
                 for r in await cur.fetchall()
             ]

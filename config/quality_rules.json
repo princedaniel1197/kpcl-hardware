@@ -1,0 +1,182 @@
+{
+  "_comment": [
+    "Data quality rule thresholds, per tag (\u00a7384). Retuning a limit is a row",
+    "change here, not an edit to engine/quality.py (\u00a7341).",
+    "",
+    "Rate-of-change limits are set above what the PROCESS can do, so that what",
+    "they catch is the instrument rather than the plant. Note they are sized for",
+    "the simulator's demonstration timing, where a full cold start-up runs in",
+    "150 s; a three-hour start-up moves far more slowly and these limits stay",
+    "conservative. The reverse would not be true, so they are set for the fast",
+    "case deliberately.",
+    "",
+    "The cross-tag pair the build plan suggests is feedwater flow against main",
+    "steam flow. The simulator has no main steam flow tag, so the equivalent",
+    "real relationship available here is feedwater flow against gross",
+    "generation: steam flow tracks load, and at 210 MW the unit takes about",
+    "670 t/h, giving roughly 3.19 t/h per MW. It is gated on load, because the",
+    "relationship does not hold while the boiler is being filled with the",
+    "breaker open."
+  ],
+  "rules": [
+    {
+      "tag": "U1_MW",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 60
+        },
+        "frozen": {
+          "window_seconds": 30,
+          "tolerance": 0.001
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_TURB_SPEED",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 400
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_DRUM_PRESS",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 30
+        },
+        "frozen": {
+          "window_seconds": 180,
+          "tolerance": 0.001
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_MS_TEMP",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 60
+        },
+        "frozen": {
+          "window_seconds": 180,
+          "tolerance": 0.001
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_MS_PRESS",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 30
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_FEEDWATER_FLOW",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 200
+        },
+        "cross_tag": {
+          "other_tag": "U1_MW",
+          "ratio": 3.19,
+          "tolerance": 0.2,
+          "gate_tag": "U1_MW",
+          "gate_min": 50
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_COAL_FLOW",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 40
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_AUX_POWER",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 10
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_CONDENSER_VAC",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 100
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_GEN_STATOR_TEMP",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 10
+        },
+        "frozen": {
+          "window_seconds": 300,
+          "tolerance": 0.001
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    },
+    {
+      "tag": "U1_BEARING_VIB",
+      "rules": {
+        "range": {},
+        "rate_of_change": {
+          "max_per_second": 20
+        },
+        "frozen": {
+          "window_seconds": 120,
+          "tolerance": 0.001
+        },
+        "stale": {
+          "max_seconds": 60
+        }
+      }
+    }
+  ]
+}

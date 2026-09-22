@@ -40,7 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
-        migrate migrate-status loadtest seed-tags seed-assets outage-test compression-report \
+        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo outage-test compression-report \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -67,6 +67,8 @@ help:
 	@echo ""
 	@echo "  seed-tags          load tag configuration from config/  (Stage 3)"
 	@echo "  seed-assets        load the asset hierarchy from config/ (Stage 5)"
+	@echo "  seed-quality       load quality rule thresholds       (Stage 6)"
+	@echo "  quality-demo       Stage 6 acceptance test (forces each condition)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
 	@echo "  compression-report Stage 4 ratios and reconstruction error"
 	@echo ""
@@ -193,6 +195,15 @@ loadtest:
 # ---------------------------------------------------------------------------
 # Collector (Stage 3)
 # ---------------------------------------------------------------------------
+
+seed-quality:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m engine.seed_quality
+
+# The Stage 6 acceptance test: forces each quality condition on the live system.
+quality-demo:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m engine.quality_demo
 
 seed-assets:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }

@@ -109,3 +109,53 @@ most wants to ask.
 
 `latest_across_template` carries quality with each value. A fleet comparison
 that cannot say which units are reporting Bad is not a comparison.
+
+## Quality rules and tag health (Stage 6)
+
+```bash
+make seed-quality    # thresholds from config/quality_rules.json
+make quality-demo    # the Stage 6 acceptance test, on the live system
+```
+
+**Source quality is never overwritten.** `sample.quality` holds the StatusCode
+exactly as acquired, for ever. Computed verdicts live in `quality_flag`, and the
+`sample_quality` view shows both columns side by side. A value that arrived Good
+but failed a range check is not the same thing as a value that arrived Bad — the
+first is a measurement the instrument stands behind and the system doubts, the
+second one the instrument disowns.
+
+Severity is assigned on meaning, not convenience:
+
+| Rule | Verdict | Why |
+|---|---|---|
+| range | `BadOutOfRange` | outside what the instrument can represent — not a measurement at all |
+| stale | `BadNoCommunication` | nothing arriving; there is no measurement to judge |
+| rate of change | `UncertainSensorNotAccurate` | the reading may be real; what is doubted is whether to believe it |
+| cross-tag | `UncertainSubNormal` | two instruments disagree; which is wrong is not yet known |
+| frozen | `UncertainLastUsableValue` | a steady process and a stuck transmitter look alike |
+
+### Two findings worth carrying forward
+
+**A server-side deadband hid every quality change.** asyncua 2.0.1's server ANDs
+the data-change trigger with the deadband test, so a status change with the
+value unchanged is never sent. Forcing a tag Bad through a deadband subscription
+produced zero Bad notifications. The collector therefore applies **no
+server-side deadband**; the cost is 2.2× the notifications from the source
+(10.0/s → 22.2/s over 14 tags), measured rather than assumed (§317).
+
+**A stuck transmitter produces silence, not repetition.** A subscription reports
+on change, so with subscription alone "frozen" and "stale" are the same
+observable — and §439 needs them distinguished, because a tag that is alive but
+stuck is a different fault from one whose link has failed. The collector
+therefore performs a periodic **max-time read** of any tag that has gone quiet.
+It is a read, the session stays read-only, and the returned DataValue carries
+the server's own SourceTimestamp; nothing is re-stamped.
+
+### The cross-tag pair
+
+Feedwater flow against gross generation, ~3.19 t/h per MW, **gated on load**.
+The build plan suggests feedwater against main steam flow, which the simulator
+does not have. The rule is gated because the relationship holds in a regime, not
+always: during a cold start-up the boiler is filled with the breaker open, and
+an ungated rule would fire through every start-up. A check that cries wolf
+through every normal evolution gets switched off.

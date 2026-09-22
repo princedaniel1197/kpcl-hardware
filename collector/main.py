@@ -35,6 +35,7 @@ async def _opcua_supervisor(session: ReadOnlySession, tags: list[dict],
             await session.connect(tags)
             log.info("subscribed to %d tags on %s",
                      len(session.subscribed), session.endpoint)
+            heartbeat = asyncio.create_task(session.max_time_read())
             while True:
                 await asyncio.sleep(5)
                 if session._client is None:
@@ -44,6 +45,7 @@ async def _opcua_supervisor(session: ReadOnlySession, tags: list[dict],
                 except Exception as exc:
                     log.warning("source connection lost: %s", exc)
                     break
+            heartbeat.cancel()
         except Exception as exc:
             log.warning("cannot reach source %s: %s", session.endpoint, exc)
         await session.disconnect()

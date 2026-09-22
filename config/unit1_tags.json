@@ -18,9 +18,10 @@
       "scan_rate_ms": 500,
       "exc_dev": 0.5,
       "comp_dev": 1.0,
-      "max_time_ms": 60000,
+      "max_time_ms": 10000,
       "_comp_dev_rationale": "1 MW on a 210 MW unit; below that is noise",
-      "_noise_sigma": 0.35
+      "_noise_sigma": 0.35,
+      "_max_time_rationale": "10 s heartbeat: generation is the most watched tag, and a stuck transmitter must show as frozen rather than merely quiet"
     },
     {
       "name": "U1_TURB_SPEED",
