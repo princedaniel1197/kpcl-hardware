@@ -148,11 +148,22 @@ The second list is what makes the first list believable.
 
 ## Status
 
-Stage: 10 — BUILT, acceptance test BLOCKED on the physical rig
-(`fat/records/stage-10-hardware-rig.md`). Firmware, bridge and configuration are
-complete and verified against a stand-in; no probe has been unplugged because the
-rig has not been built. Stages 0 to 9 complete; records in `fat/records/`.
-Stage 11 complete (`fat/records/stage-11-redundancy.md`). Stage 12 BUILT; its criterion is a human judgement and is outstanding
-(`fat/records/stage-12-visualisation.md`). Stage 13 complete (`fat/records/stage-13-remaining-requirements.md`).
-Stage 14 has not been begun.
-Update this line as stages complete.
+All fourteen stages built. Twelve have passed their acceptance test; two are
+outstanding and both need a person rather than more code.
+
+| Stage | State |
+|---|---|
+| 0–9, 11, 13 | test run and passed; records in `fat/records/` |
+| 10 hardware rig | built and verified against a stand-in; **the acceptance test needs the physical rig**, which has not been assembled, and the firmware has never been compiled |
+| 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
+| 14 FAT | plan, procedure and automated runner built; reports in `fat/reports/` |
+
+Outstanding for a person:
+
+1. Build the bench rig (`firmware/REGISTER_MAP.md`), flash the firmware, and
+   unplug the temperature probe. Steps in `fat/records/stage-10-hardware-rig.md`.
+2. Sit someone in front of the visualisation during an outage and record what
+   they say. Steps in `fat/records/stage-12-visualisation.md`.
+3. Sign the hold and witness points in the FAT report.
+
+Update this section as those close.
