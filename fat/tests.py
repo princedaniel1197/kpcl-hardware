@@ -82,13 +82,42 @@ def _post(url: str, body: dict | None = None, method: str = "POST"):
 # §528 — performance
 # ---------------------------------------------------------------------------
 
+def clock_offset(conn, samples: int = 7) -> float:
+    """Database clock minus host clock, in seconds.
+
+    These are not the same clock. The simulator stamps SourceTimestamp from the
+    host; PostgreSQL runs in a container with its own clock. Measured on this
+    rig they differ by up to 1.8 s and drift. Any measurement that subtracts one
+    from the other is measuring the clock difference as much as the system.
+    """
+    offsets = []
+    for _ in range(samples):
+        before = dt.datetime.now(dt.timezone.utc)
+        db_now = _query(conn, "SELECT now()")[0][0]
+        after = dt.datetime.now(dt.timezone.utc)
+        offsets.append((db_now - (before + (after - before) / 2)).total_seconds())
+        time.sleep(0.1)
+    offsets.sort()
+    return offsets[len(offsets) // 2]
+
+
 def latency_p95(conn) -> Result:
     """Acquisition-to-historian latency: how old the newest archived sample is.
 
-    Sampled repeatedly against the live system rather than computed from stored
-    columns, because what the criterion asks about is the delay between a value
-    being produced and being queryable — which only a query can observe.
+    MEASURED AGAINST ONE CLOCK. `source_ts` is stamped by the simulator on the
+    host, so "now" must also come from the host — not from `now()` inside the
+    database container, which is a different clock.
+
+    That is not a hypothetical. The first version of this test used the
+    database's `now()` and reported a **P95 of -3.278 s**, which it then passed,
+    because -3.278 is less than 5. A negative latency is not a fast system; it
+    is a broken measurement. The container's clock was measured lagging the
+    host's by up to 1.8 s and drifting.
+
+    So: one clock, and any negative observation fails the test outright rather
+    than being averaged away.
     """
+    offset = clock_offset(conn)
     observations: list[float] = []
     # Each observation is a real query against the live archive, so 1000 of them
     # takes a couple of minutes. The criterion says 1000; the test waits for
@@ -97,24 +126,37 @@ def latency_p95(conn) -> Result:
     deadline = time.monotonic() + 240
     while len(observations) < 1000 and time.monotonic() < deadline:
         rows = _query(conn,
-            "SELECT EXTRACT(epoch FROM now() - max(s.source_ts))"
-            " FROM sample s JOIN tag t ON t.id = s.tag_id"
+            "SELECT max(s.source_ts) FROM sample s JOIN tag t ON t.id = s.tag_id"
             " WHERE t.source_system='opcua' AND t.name LIKE %s",
             ("U1\\_%",))
         if rows and rows[0][0] is not None:
-            observations.append(float(rows[0][0]))
+            # Host clock on both sides of the subtraction.
+            observations.append(
+                (dt.datetime.now(dt.timezone.utc) - rows[0][0]).total_seconds())
         time.sleep(0.05)
+
     if len(observations) < 1000:
         return Result(False, f"only {len(observations)} observations",
                       detail="fewer than the 1000 the criterion requires")
+
+    negative = [o for o in observations if o < 0]
     observations.sort()
     p95 = observations[int(len(observations) * 0.95)]
     p50 = statistics.median(observations)
-    return Result(
-        p95 <= 5.0, f"P95 {p95:.3f} s over {len(observations)} observations",
-        evidence=[f"P50 {p50:.3f} s", f"P95 {p95:.3f} s",
-                  f"max {observations[-1]:.3f} s",
-                  f"min {observations[0]:.3f} s"])
+    evidence = [f"P50 {p50:.3f} s", f"P95 {p95:.3f} s",
+                f"max {observations[-1]:.3f} s", f"min {observations[0]:.3f} s",
+                f"database clock minus host clock: {offset:+.3f} s "
+                f"(measured, not assumed — the two are different clocks)"]
+    if negative:
+        return Result(False,
+                      f"{len(negative)} observations were NEGATIVE; the "
+                      f"measurement spans two clocks and is not valid",
+                      evidence=evidence)
+    return Result(p95 <= 5.0,
+                  f"P95 {p95:.3f} s over {len(observations)} observations",
+                  evidence=evidence,
+                  detail="measured host-clock to host-clock; the container's "
+                         "clock is reported alongside because it differs")
 
 
 def trend_query_24h(conn) -> Result:

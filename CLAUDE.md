@@ -154,9 +154,10 @@ outstanding and both need a person rather than more code.
 | Stage | State |
 |---|---|
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
+| 14 report | `fat/reports/FAT-20260922T194953Z.md` |
 | 10 hardware rig | built and verified against a stand-in; **the acceptance test needs the physical rig**, which has not been assembled, and the firmware has never been compiled |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
-| 14 FAT | plan, procedure and automated runner built; reports in `fat/reports/` |
+| 14 FAT | plan, procedure and runner built; **12 of 12 automated tests pass**; 5 hold and witness points await signature |
 
 Outstanding for a person:
 
