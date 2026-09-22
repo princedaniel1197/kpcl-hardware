@@ -1,0 +1,340 @@
+{
+  "_comment": [
+    "Asset model for the CRPMS demonstrator.",
+    "KPCL -> Station -> Unit -> System -> Equipment -> Parameter (\u00a7392).",
+    "Adding a unit is an entry in 'elements' below -- one object, no code.",
+    "Tag patterns resolve against an element's context, so the same template",
+    "produces U1_MS_TEMP for one unit and U2_MS_TEMP for the next.",
+    "Naming follows ISA-95/ISA-88; the convention is in engine/README.md (\u00a7385)."
+  ],
+  "templates": [
+    {
+      "name": "Enterprise",
+      "level": "Enterprise",
+      "description": "Generating company"
+    },
+    {
+      "name": "ThermalStation",
+      "level": "Station",
+      "description": "Coal-fired generating station"
+    },
+    {
+      "name": "GeneratingUnit",
+      "level": "Unit",
+      "description": "Base template for any generating unit",
+      "attributes": [
+        {
+          "name": "GrossGeneration",
+          "tag_pattern": "{unit}_MW",
+          "engineering_unit": "MW",
+          "range_low": 0.0,
+          "range_high": 250.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.5,
+          "comp_dev": 1.0,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Unit 1 gross generation"
+        },
+        {
+          "name": "AuxiliaryPower",
+          "tag_pattern": "{unit}_AUX_POWER",
+          "engineering_unit": "MW",
+          "range_low": 0.0,
+          "range_high": 30.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.12,
+          "comp_dev": 0.24,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Unit auxiliary power consumption"
+        },
+        {
+          "name": "RatedCapacity",
+          "engineering_unit": "MW",
+          "static_default": "0",
+          "description": "Nameplate capacity"
+        },
+        {
+          "name": "Fuel",
+          "static_default": "unknown",
+          "description": "Primary fuel"
+        }
+      ]
+    },
+    {
+      "name": "ThermalUnit210",
+      "level": "Unit",
+      "derives_from": "GeneratingUnit",
+      "description": "210 MW coal-fired unit; specialises GeneratingUnit",
+      "attributes": [
+        {
+          "name": "RatedCapacity",
+          "engineering_unit": "MW",
+          "static_default": "210",
+          "description": "Nameplate capacity"
+        },
+        {
+          "name": "Fuel",
+          "static_default": "coal",
+          "description": "Primary fuel"
+        },
+        {
+          "name": "BreakerClosed",
+          "tag_pattern": "{unit}_BREAKER_CLOSED",
+          "engineering_unit": null,
+          "range_low": 0,
+          "range_high": 1,
+          "scan_rate_ms": 250,
+          "exc_dev": null,
+          "comp_dev": null,
+          "max_time_ms": 300000,
+          "source_system": "opcua",
+          "description": "Generator breaker closed"
+        }
+      ]
+    },
+    {
+      "name": "Boiler",
+      "level": "System",
+      "description": "Steam generator",
+      "attributes": [
+        {
+          "name": "DrumPressure",
+          "tag_pattern": "{unit}_DRUM_PRESS",
+          "engineering_unit": "kg/cm2",
+          "range_low": 0.0,
+          "range_high": 200.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.45,
+          "comp_dev": 0.9,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Boiler drum pressure"
+        },
+        {
+          "name": "MainSteamTemperature",
+          "tag_pattern": "{unit}_MS_TEMP",
+          "engineering_unit": "degC",
+          "range_low": 0.0,
+          "range_high": 600.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 1.2,
+          "comp_dev": 2.4,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Main steam temperature"
+        },
+        {
+          "name": "MainSteamPressure",
+          "tag_pattern": "{unit}_MS_PRESS",
+          "engineering_unit": "kg/cm2",
+          "range_low": 0.0,
+          "range_high": 200.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.375,
+          "comp_dev": 0.75,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Main steam pressure"
+        },
+        {
+          "name": "FeedwaterFlow",
+          "tag_pattern": "{unit}_FEEDWATER_FLOW",
+          "engineering_unit": "t/h",
+          "range_low": 0.0,
+          "range_high": 800.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 3.75,
+          "comp_dev": 7.5,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Feedwater flow"
+        },
+        {
+          "name": "CoalFlow",
+          "tag_pattern": "{unit}_COAL_FLOW",
+          "engineering_unit": "t/h",
+          "range_low": 0.0,
+          "range_high": 200.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.9,
+          "comp_dev": 1.8,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Total coal flow"
+        },
+        {
+          "name": "LightUp",
+          "tag_pattern": "{unit}_BOILER_LIGHTUP",
+          "engineering_unit": null,
+          "range_low": 0,
+          "range_high": 1,
+          "scan_rate_ms": 250,
+          "exc_dev": null,
+          "comp_dev": null,
+          "max_time_ms": 300000,
+          "source_system": "opcua",
+          "description": "Boiler light-up permissive established"
+        }
+      ]
+    },
+    {
+      "name": "Turbine",
+      "level": "System",
+      "description": "Steam turbine",
+      "attributes": [
+        {
+          "name": "Speed",
+          "tag_pattern": "{unit}_TURB_SPEED",
+          "engineering_unit": "rpm",
+          "range_low": 0.0,
+          "range_high": 3600.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 1.8,
+          "comp_dev": 3.6,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Turbine shaft speed"
+        },
+        {
+          "name": "Rolling",
+          "tag_pattern": "{unit}_TURB_ROLLING",
+          "engineering_unit": null,
+          "range_low": 0,
+          "range_high": 1,
+          "scan_rate_ms": 250,
+          "exc_dev": null,
+          "comp_dev": null,
+          "max_time_ms": 300000,
+          "source_system": "opcua",
+          "description": "Turbine rolling"
+        },
+        {
+          "name": "CondenserVacuum",
+          "tag_pattern": "{unit}_CONDENSER_VAC",
+          "engineering_unit": "mmHg",
+          "range_low": 0.0,
+          "range_high": 760.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 1.65,
+          "comp_dev": 3.3,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Condenser vacuum"
+        }
+      ]
+    },
+    {
+      "name": "Generator",
+      "level": "System",
+      "description": "Synchronous generator",
+      "attributes": [
+        {
+          "name": "StatorTemperature",
+          "tag_pattern": "{unit}_GEN_STATOR_TEMP",
+          "engineering_unit": "degC",
+          "range_low": 0.0,
+          "range_high": 150.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.375,
+          "comp_dev": 0.75,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Generator stator winding temperature"
+        }
+      ]
+    },
+    {
+      "name": "Bearing",
+      "level": "Equipment",
+      "description": "Rotating machine bearing",
+      "attributes": [
+        {
+          "name": "Vibration",
+          "tag_pattern": "{unit}_BEARING_VIB",
+          "engineering_unit": "mm/s",
+          "range_low": 0.0,
+          "range_high": 25.0,
+          "scan_rate_ms": 500,
+          "exc_dev": 0.025,
+          "comp_dev": 0.05,
+          "max_time_ms": 60000,
+          "source_system": "opcua",
+          "description": "Turbine bearing vibration velocity"
+        }
+      ]
+    }
+  ],
+  "composition": [
+    {
+      "parent": "ThermalUnit210",
+      "child": "Boiler",
+      "name": "Boiler",
+      "code_suffix": "BLR",
+      "level": "System",
+      "sort_order": 1
+    },
+    {
+      "parent": "ThermalUnit210",
+      "child": "Turbine",
+      "name": "Turbine",
+      "code_suffix": "TUR",
+      "level": "System",
+      "sort_order": 2
+    },
+    {
+      "parent": "ThermalUnit210",
+      "child": "Generator",
+      "name": "Generator",
+      "code_suffix": "GEN",
+      "level": "System",
+      "sort_order": 3
+    },
+    {
+      "parent": "Turbine",
+      "child": "Bearing",
+      "name": "Turbine Bearing 1",
+      "code_suffix": "BRG1",
+      "level": "Equipment",
+      "sort_order": 1
+    }
+  ],
+  "elements": [
+    {
+      "template": "Enterprise",
+      "asset_code": "KPCL",
+      "name": "Karnataka Power Corporation Limited",
+      "context": {}
+    },
+    {
+      "template": "ThermalStation",
+      "asset_code": "KPCL-RTPS",
+      "name": "Raichur Thermal Power Station",
+      "parent_code": "KPCL",
+      "context": {
+        "station": "RTPS"
+      }
+    },
+    {
+      "template": "ThermalUnit210",
+      "asset_code": "KPCL-RTPS-U1",
+      "name": "RTPS Unit 1",
+      "parent_code": "KPCL-RTPS",
+      "context": {
+        "station": "RTPS",
+        "unit": "U1"
+      }
+    },
+    {
+      "template": "ThermalUnit210",
+      "asset_code": "KPCL-RTPS-U2",
+      "name": "RTPS Unit 2",
+      "parent_code": "KPCL-RTPS",
+      "context": {
+        "station": "RTPS",
+        "unit": "U2"
+      }
+    }
+  ]
+}

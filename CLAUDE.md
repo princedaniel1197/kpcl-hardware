@@ -148,6 +148,6 @@ The second list is what makes the first list believable.
 
 ## Status
 
-Stage: 4 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-04-compression.md`).
-Stages 0 to 3 complete; records in `fat/records/`. Stage 5 has not been begun.
+Stage: 5 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-05-asset-framework.md`).
+Stages 0 to 4 complete; records in `fat/records/`. Stage 6 has not been begun.
 Update this line as stages complete.
