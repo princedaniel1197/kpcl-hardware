@@ -148,6 +148,6 @@ The second list is what makes the first list believable.
 
 ## Status
 
-Stage: 7 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-07-kpi-engine.md`).
-Stages 0 to 6 complete; records in `fat/records/`. Stage 8 has not been begun.
+Stage: 8 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-08-event-frames.md`).
+Stages 0 to 7 complete; records in `fat/records/`. Stage 9 has not been begun.
 Update this line as stages complete.

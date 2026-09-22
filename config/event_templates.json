@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "Event frame templates (§472). Each trigger names an ATTRIBUTE, resolved",
+    "through the asset model, so the same template serves every unit.",
+    "",
+    "Every trigger carries a debounce: the condition must hold that long before",
+    "it counts. A transmitter spike reading 3000 rpm must not open a start-up.",
+    "The milestone timestamp is the instant the condition BECAME true, not the",
+    "instant the debounce expired -- the difference is an artefact of how",
+    "carefully we are watching, and reporting the later one would make every",
+    "start-up look slower than it was.",
+    "",
+    "The milestone sequence follows a cold start-up: light-up, pressure raised",
+    "to admission, steam admitted and the rotor turning, rated speed,",
+    "synchronisation, full load. Steam admission is taken as main steam",
+    "pressure reaching the admission threshold, because the simulator has no",
+    "stop-valve position tag; on a real unit that tag is what you would use."
+  ],
+  "templates": [
+    {
+      "name": "ThermalStartup",
+      "start": {"attribute": "LightUp", "comparison": ">=", "threshold": 1,
+                "debounce_s": 2.0},
+      "end": {"attribute": "GrossGeneration", "comparison": ">=",
+              "threshold": 200, "debounce_s": 5.0},
+      "max_duration_s": 10800,
+      "milestones": [
+        {"name": "boiler_lightup", "sort_order": 1,
+         "trigger": {"attribute": "LightUp", "comparison": ">=",
+                     "threshold": 1, "debounce_s": 2.0}},
+        {"name": "steam_admission", "sort_order": 2,
+         "trigger": {"attribute": "MainSteamPressure", "comparison": ">=",
+                     "threshold": 100, "debounce_s": 4.0}},
+        {"name": "turbine_rolling", "sort_order": 3,
+         "trigger": {"attribute": "Speed", "comparison": ">",
+                     "threshold": 50, "debounce_s": 3.0}},
+        {"name": "rated_speed", "sort_order": 4,
+         "trigger": {"attribute": "Speed", "comparison": ">=",
+                     "threshold": 2950, "debounce_s": 4.0}},
+        {"name": "synchronisation", "sort_order": 5,
+         "trigger": {"attribute": "BreakerClosed", "comparison": ">=",
+                     "threshold": 1, "debounce_s": 2.0}},
+        {"name": "full_load", "sort_order": 6,
+         "trigger": {"attribute": "GrossGeneration", "comparison": ">=",
+                     "threshold": 200, "debounce_s": 5.0}}
+      ],
+      "summary_attributes": ["GrossGeneration", "MainSteamTemperature",
+                             "MainSteamPressure", "CoalFlow", "Speed",
+                             "Vibration"]
+    },
+    {
+      "name": "Shutdown",
+      "start": {"attribute": "BreakerClosed", "comparison": "<", "threshold": 1,
+                "debounce_s": 3.0},
+      "end": {"attribute": "Speed", "comparison": "<", "threshold": 50,
+              "debounce_s": 5.0},
+      "max_duration_s": 7200,
+      "milestones": [
+        {"name": "breaker_open", "sort_order": 1,
+         "trigger": {"attribute": "BreakerClosed", "comparison": "<",
+                     "threshold": 1, "debounce_s": 3.0}},
+        {"name": "coast_down", "sort_order": 2,
+         "trigger": {"attribute": "Speed", "comparison": "<",
+                     "threshold": 2000, "debounce_s": 3.0}},
+        {"name": "barring", "sort_order": 3,
+         "trigger": {"attribute": "Speed", "comparison": "<",
+                     "threshold": 50, "debounce_s": 5.0}}
+      ],
+      "summary_attributes": ["Speed", "Vibration", "MainSteamTemperature"]
+    }
+  ]
+}
