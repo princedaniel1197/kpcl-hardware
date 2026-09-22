@@ -40,6 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
+        migrate migrate-status loadtest \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -59,6 +60,10 @@ help:
 	@echo "  api         run the FastAPI service             (Stage 12)"
 	@echo "  ui          run the React visualisation         (Stage 12)"
 	@echo "  test        run the test suite"
+	@echo ""
+	@echo "  migrate            apply archive SQL migrations    (Stage 2)"
+	@echo "  migrate-status     list applied and pending migrations"
+	@echo "  loadtest           Stage 2 acceptance test: 10M rows (~1 GB)"
 	@echo ""
 	@echo "  scraper-migrate    create the SLDC recorder tables"
 	@echo "  scraper-once       one poll, then exit"
@@ -163,6 +168,22 @@ ui:
 test:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m pytest
+
+# ---------------------------------------------------------------------------
+# Archive (Stage 2)
+# ---------------------------------------------------------------------------
+
+migrate:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m archive.migrate
+
+migrate-status:
+	@$(VPY) -m archive.migrate --status
+
+# The Stage 2 acceptance test. Writes ~1 GB; run it deliberately.
+loadtest:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m archive.loadtest
 
 # ---------------------------------------------------------------------------
 # Karnataka SLDC generation recorder (scraper/). Not a build-plan stage.

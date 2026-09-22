@@ -148,6 +148,6 @@ The second list is what makes the first list believable.
 
 ## Status
 
-Stage: 1 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-01-dcs-simulator.md`).
-Stage 0 complete (`fat/records/stage-00-environment.md`). Stage 2 has not been begun.
+Stage: 2 — COMPLETE, test passed 2026-09-22 (`fat/records/stage-02-schema-and-archive.md`).
+Stages 0 and 1 complete; records in `fat/records/`. Stage 3 has not been begun.
 Update this line as stages complete.
