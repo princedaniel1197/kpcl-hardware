@@ -39,7 +39,9 @@ POSTGRES_DB   ?= crpms
 POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
-.PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test
+.PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
+        scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
+        scraper-logs scraper-status
 
 help:
 	@echo "CRPMS Demonstrator — make targets"
@@ -57,6 +59,13 @@ help:
 	@echo "  api         run the FastAPI service             (Stage 12)"
 	@echo "  ui          run the React visualisation         (Stage 12)"
 	@echo "  test        run the test suite"
+	@echo ""
+	@echo "  scraper-migrate    create the SLDC recorder tables"
+	@echo "  scraper-once       one poll, then exit"
+	@echo "  scraper            run the SLDC recorder in the foreground"
+	@echo "  scraper-install    run it under launchd, restarting on reboot"
+	@echo "  scraper-status     daily row counts and recent poll attempts"
+	@echo "  scraper-logs       follow the recorder log"
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -154,3 +163,39 @@ ui:
 test:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m pytest
+
+# ---------------------------------------------------------------------------
+# Karnataka SLDC generation recorder (scraper/). Not a build-plan stage.
+# ---------------------------------------------------------------------------
+
+scraper-migrate:
+	@test -n "$(DOCKER)" || { echo "docker is not installed — run 'make doctor'"; exit 1; }
+	$(DOCKER) exec -i $(DB_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) \
+	  -v ON_ERROR_STOP=1 < scraper/migrations/001_sldc_generation.sql
+
+scraper-once:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m scraper --once
+
+scraper:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m scraper
+
+scraper-install:
+	./deploy/install-recorder.sh
+
+scraper-uninstall:
+	./deploy/uninstall-recorder.sh
+
+scraper-logs:
+	@tail -f $$HOME/Library/Logs/orianode-crpms/sldc-recorder.log
+
+# The liveness check: daily row counts and the last few poll attempts.
+scraper-status:
+	@$(DOCKER) exec -i $(DB_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c \
+	  "SELECT * FROM sldc_daily_rows LIMIT 7;"
+	@$(DOCKER) exec -i $(DB_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c \
+	  "SELECT attempt_ts, outcome, http_status, rows_written, page_source_ts, duration_ms \
+	   FROM sldc_poll_log ORDER BY attempt_ts DESC LIMIT 10;"
+	@launchctl print gui/$$UID/com.orianode.crpms.sldc-recorder 2>/dev/null \
+	  | grep -E "state = |pid = |last exit" || echo "launchd agent not installed"
