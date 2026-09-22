@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 import time
+
+import psycopg
 
 from collector.buffer import Buffer
 from collector.config import CollectorConfig
@@ -52,11 +55,39 @@ async def _opcua_supervisor(session: ReadOnlySession, tags: list[dict],
         await asyncio.sleep(delay_s)
 
 
+async def _health_tag_ids(dsn: str) -> dict[str, int]:
+    """Health tag ids, read directly. The sink may be OMF, which has no way to
+    ask a question."""
+    async with await psycopg.AsyncConnection.connect(dsn, connect_timeout=5) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT name, id FROM tag WHERE source_system='collector'")
+            return {name: tag_id for name, tag_id in await cur.fetchall()}
+
+
 async def run(config: CollectorConfig) -> None:
     stream = EventStream()
     buffer = Buffer(config.buffer_path, config.buffer_max_rows,
                     config.buffer_warn_fraction)
-    sink = ArchiveSink(config.dsn)
+
+    # Output format is configuration. Setting CRPMS_OMF_URL makes OMF the
+    # collector's only output; pointing it at a real PI Web API OMF endpoint is
+    # that URL plus credentials and no code change (Stage 9).
+    omf_url = os.environ.get("CRPMS_OMF_URL")
+    if omf_url:
+        from collector import omf as omf_mod
+        from collector.omf_sink import OmfSink
+        sink = OmfSink(omf_mod.OmfConfig(
+            url=omf_url,
+            producer_token=os.environ.get("CRPMS_OMF_TOKEN", "orianode-crpms"),
+            username=os.environ.get("CRPMS_OMF_USER"),
+            password=os.environ.get("CRPMS_OMF_PASSWORD"),
+            verify_tls=os.environ.get("CRPMS_OMF_VERIFY_TLS", "1") != "0",
+        ), config.dsn)
+        log.info("output format: OMF -> %s", omf_url)
+    else:
+        sink = ArchiveSink(config.dsn)
+        log.info("output format: direct SQL")
 
     # Tag configuration must be readable at least once to know what to
     # subscribe to. If the archive is down at startup there is nothing to
@@ -78,10 +109,7 @@ async def run(config: CollectorConfig) -> None:
         log.info("%d samples were left buffered by a previous run", buffer.depth)
         await pipeline.drain()
 
-    health_ids = {}
-    async with sink._conn.cursor() as cur:  # noqa: SLF001 - read-only lookup
-        await cur.execute("SELECT name, id FROM tag WHERE source_system='collector'")
-        health_ids = {name: tag_id for name, tag_id in await cur.fetchall()}
+    health_ids = await _health_tag_ids(config.dsn)
     publisher = HealthPublisher(pipeline, health_ids, config.health_interval_s)
 
     session = ReadOnlySession(config.endpoint, pipeline.on_sample)

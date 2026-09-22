@@ -161,3 +161,35 @@ the poor ratio accepted. Rationale is recorded per tag in
 **Not wired into the live pipeline by default.** Compression discards samples,
 which is the opposite of the guarantee Stage 3 tests; Stage 3's zero-loss result
 was measured with compression off.
+
+## OMF output (Stage 9)
+
+The collector's output format is configuration. Setting `CRPMS_OMF_URL` makes
+OMF its only output:
+
+```bash
+export CRPMS_OMF_URL=https://pi.example.com/piwebapi/omf
+export CRPMS_OMF_USER=... CRPMS_OMF_PASSWORD=... CRPMS_OMF_TOKEN=...
+make collector
+```
+
+Pointing at a real PI Web API OMF endpoint is those variables and **no code
+change**. Unset them and the collector writes directly to TimescaleDB, which is
+the default and is what Stage 3's zero-loss test measured.
+
+`archive/omf_receiver.py` accepts the same messages and writes to TimescaleDB,
+so the whole chain can be exercised without a PI licence.
+
+**SourceTime is the OMF index**, so a historian orders and de-duplicates on when
+the value was produced; ServerTime rides alongside. **Quality uses OMF's
+`isquality`**, so the numeric StatusCode is a designated quality property rather
+than an ordinary number.
+
+**One hazard worth knowing.** The OMF specification defaults an omitted numeric
+property to `0`. Expressing "no value" by omitting `Value` would therefore store
+a zero — the substitution §318 forbids, arriving through the wire format. The
+emitter always sends `Value` explicitly, `null` when there is none, and the
+receiver refuses a message that omits it.
+
+This receiver is not PI. Whether a real AVEVA endpoint accepts these exact
+messages has not been tested, because this project has no PI licence.

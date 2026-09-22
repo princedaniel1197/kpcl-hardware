@@ -40,7 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
-        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo outage-test compression-report \
+        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo outage-test compression-report \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -72,6 +72,8 @@ help:
 	@echo "  seed-kpis          load KPI definitions, regenerate the dictionary"
 	@echo "  kpi-demo           Stage 7 acceptance test (Bad input -> Bad KPI)"
 	@echo "  events-demo        Stage 8 acceptance test (two start-ups, compared)"
+	@echo "  omf-receiver       run the OMF receiver                (Stage 9)"
+	@echo "  omf-demo           Stage 9 acceptance test (OMF, switchable endpoint)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
 	@echo "  compression-report Stage 4 ratios and reconstruction error"
 	@echo ""
@@ -198,6 +200,15 @@ loadtest:
 # ---------------------------------------------------------------------------
 # Collector (Stage 3)
 # ---------------------------------------------------------------------------
+
+omf-receiver:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m archive.omf_receiver
+
+# The Stage 9 acceptance test: OMF messages and a configurable destination.
+omf-demo:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m collector.omf_demo
 
 events-demo:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
