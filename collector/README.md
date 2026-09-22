@@ -120,3 +120,44 @@ reading loses its oldest events rather than stalling acquisition.
 pytest collector/ -q      # buffer and read-only guarantees, fast
 make outage-test          # the acceptance test: really stops the database
 ```
+
+## Compression (Stage 4)
+
+`compression.py` implements two-stage compression as PI does it: exception
+reporting against ExcDev, then swinging-door against CompDev, with
+ExcDev ≈ CompDev/2 (§442).
+
+```bash
+make compression-report    # ratios and reconstruction error against live data
+```
+
+**The four exceptions** archive a value regardless of any deadband: quality
+changed, the timestamp did not advance, the value is not a number, or max_time
+elapsed since the last archived point. Each has a test. The first matters most:
+a tag going Bad usually happens while its value is flat, which is exactly when
+a deadband would discard it.
+
+**The bound is verified, not assumed.** The textbook swinging door does not
+guarantee CompDev on the reconstructed series — the cone test proves a line
+within CompDev of every point exists, not that the line actually drawn is that
+one. Measured with the cone test alone, realised error reached 1.6–1.9 ×
+CompDev. So the cone decides *when* to archive and a verification step decides
+*which* point, walking back until interpolating to it keeps every discarded
+point within CompDev. Three separate paths needed that verification before the
+bound held end to end: the corridor itself, points discarded by exception
+reporting (which the door now witnesses even though it never receives them),
+and forced archives.
+
+The result is a guarantee of **CompDev end to end against the raw series**,
+stronger than the ExcDev+CompDev two-stage compression conventionally claims.
+
+**Ratios are a property of the deadband relative to the signal's noise**, not of
+the algorithm. Measured over a live start-up: `U1_MS_TEMP` 19.0:1,
+`U1_BEARING_VIB` 1.3:1. The vibration tag's CompDev is deliberately below its
+noise floor because excursions are the reason it exists, so detail is kept and
+the poor ratio accepted. Rationale is recorded per tag in
+`config/unit1_tags.json`.
+
+**Not wired into the live pipeline by default.** Compression discards samples,
+which is the opposite of the guarantee Stage 3 tests; Stage 3's zero-loss result
+was measured with compression off.

@@ -2,9 +2,10 @@
   "_comment": [
     "Tag configuration for Unit 1 and for collector health.",
     "Adding a tag is a row here, not an edit to Python (\u00a7341).",
-    "source_system 'opcua' tags are subscribed by the collector;",
-    "'collector' tags are published by it about itself (\u00a7462).",
-    "ExcDev ~ CompDev/2 is the PI convention (\u00a7442); Stage 4 tunes these."
+    "ExcDev = CompDev/2 is the PI convention (\u00a7442).",
+    "CompDev is set per tag on operational grounds; see _comp_dev_rationale.",
+    "A CompDev below a tag's noise floor guarantees archiving noise. That is",
+    "done deliberately for U1_BEARING_VIB, where the detail is worth the cost."
   ],
   "tags": [
     {
@@ -15,9 +16,11 @@
       "range_high": 250.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.25,
-      "comp_dev": 0.5,
-      "max_time_ms": 60000
+      "exc_dev": 0.5,
+      "comp_dev": 1.0,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "1 MW on a 210 MW unit; below that is noise",
+      "_noise_sigma": 0.35
     },
     {
       "name": "U1_TURB_SPEED",
@@ -27,9 +30,11 @@
       "range_high": 3600.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 3.6,
-      "comp_dev": 7.2,
-      "max_time_ms": 60000
+      "exc_dev": 1.8,
+      "comp_dev": 3.6,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "3 rpm at 3000; speed control band is wider",
+      "_noise_sigma": 1.2
     },
     {
       "name": "U1_DRUM_PRESS",
@@ -39,9 +44,11 @@
       "range_high": 200.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.2,
-      "comp_dev": 0.4,
-      "max_time_ms": 60000
+      "exc_dev": 0.45,
+      "comp_dev": 0.9,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~3x noise; drum swings that matter are larger",
+      "_noise_sigma": 0.3
     },
     {
       "name": "U1_MS_TEMP",
@@ -51,9 +58,11 @@
       "range_high": 600.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.6,
-      "comp_dev": 1.2,
-      "max_time_ms": 60000
+      "exc_dev": 1.2,
+      "comp_dev": 2.4,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "main steam temperature control band is +/-5 degC",
+      "_noise_sigma": 0.8
     },
     {
       "name": "U1_MS_PRESS",
@@ -63,9 +72,11 @@
       "range_high": 200.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.2,
-      "comp_dev": 0.4,
-      "max_time_ms": 60000
+      "exc_dev": 0.375,
+      "comp_dev": 0.75,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~3x noise floor",
+      "_noise_sigma": 0.25
     },
     {
       "name": "U1_FEEDWATER_FLOW",
@@ -75,9 +86,11 @@
       "range_high": 800.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.8,
-      "comp_dev": 1.6,
-      "max_time_ms": 60000
+      "exc_dev": 3.75,
+      "comp_dev": 7.5,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~1% of full-load flow",
+      "_noise_sigma": 2.5
     },
     {
       "name": "U1_COAL_FLOW",
@@ -87,9 +100,11 @@
       "range_high": 200.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.2,
-      "comp_dev": 0.4,
-      "max_time_ms": 60000
+      "exc_dev": 0.9,
+      "comp_dev": 1.8,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~3x noise; mill output resolution",
+      "_noise_sigma": 0.6
     },
     {
       "name": "U1_AUX_POWER",
@@ -99,9 +114,11 @@
       "range_high": 30.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.03,
-      "comp_dev": 0.06,
-      "max_time_ms": 60000
+      "exc_dev": 0.12,
+      "comp_dev": 0.24,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~3x noise floor",
+      "_noise_sigma": 0.08
     },
     {
       "name": "U1_CONDENSER_VAC",
@@ -111,9 +128,11 @@
       "range_high": 760.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.76,
-      "comp_dev": 1.52,
-      "max_time_ms": 60000
+      "exc_dev": 1.65,
+      "comp_dev": 3.3,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~3x noise; vacuum trends slowly",
+      "_noise_sigma": 1.1
     },
     {
       "name": "U1_GEN_STATOR_TEMP",
@@ -123,9 +142,11 @@
       "range_high": 150.0,
       "source_system": "opcua",
       "scan_rate_ms": 500,
-      "exc_dev": 0.15,
-      "comp_dev": 0.3,
-      "max_time_ms": 60000
+      "exc_dev": 0.375,
+      "comp_dev": 0.75,
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "~3x noise; stator temperature moves slowly",
+      "_noise_sigma": 0.25
     },
     {
       "name": "U1_BEARING_VIB",
@@ -137,7 +158,9 @@
       "scan_rate_ms": 500,
       "exc_dev": 0.025,
       "comp_dev": 0.05,
-      "max_time_ms": 60000
+      "max_time_ms": 60000,
+      "_comp_dev_rationale": "kept below the noise floor on purpose: vibration detail matters more than ratio",
+      "_noise_sigma": 0.18
     },
     {
       "name": "U1_BOILER_LIGHTUP",
@@ -149,7 +172,8 @@
       "scan_rate_ms": 250,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 300000
+      "max_time_ms": 300000,
+      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)"
     },
     {
       "name": "U1_TURB_ROLLING",
@@ -161,7 +185,8 @@
       "scan_rate_ms": 250,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 300000
+      "max_time_ms": 300000,
+      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)"
     },
     {
       "name": "U1_BREAKER_CLOSED",
@@ -173,7 +198,8 @@
       "scan_rate_ms": 250,
       "exc_dev": null,
       "comp_dev": null,
-      "max_time_ms": 300000
+      "max_time_ms": 300000,
+      "_comp_dev_rationale": "no deadband: every transition matters (\u00a7440)"
     },
     {
       "name": "COLLECTOR_LINK_STATE",

@@ -40,7 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
-        migrate migrate-status loadtest seed-tags outage-test \
+        migrate migrate-status loadtest seed-tags outage-test compression-report \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -67,6 +67,7 @@ help:
 	@echo ""
 	@echo "  seed-tags          load tag configuration from config/  (Stage 3)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
+	@echo "  compression-report Stage 4 ratios and reconstruction error"
 	@echo ""
 	@echo "  scraper-migrate    create the SLDC recorder tables"
 	@echo "  scraper-once       one poll, then exit"
@@ -195,6 +196,11 @@ loadtest:
 seed-tags:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m collector.seed
+
+# The Stage 4 acceptance measurement: compression against live simulator data.
+compression-report:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m collector.compression_report
 
 # The Stage 3 acceptance test. STOPS THE DATABASE CONTAINER for three minutes.
 outage-test:
