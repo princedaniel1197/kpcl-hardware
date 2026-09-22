@@ -146,7 +146,7 @@ install: venv
 
 sim:
 	@test -f sim/server.py || { echo "sim/server.py does not exist yet — that is Stage 1."; exit 1; }
-	$(VPY) -m sim.server
+	$(VPY) -m sim
 
 collector:
 	@test -f collector/main.py || { echo "collector/main.py does not exist yet — that is Stage 3."; exit 1; }
