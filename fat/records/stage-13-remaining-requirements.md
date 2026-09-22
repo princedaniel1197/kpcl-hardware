@@ -140,6 +140,21 @@ and cannot be checked — and once it has left this system, nobody can ever
 recover which readings were trustworthy. `kpi_values.csv` carries the definition
 version and the equation as it stood.
 
+## A defect in the tests, corrected
+
+The 22 tests passed in isolation and then **failed the second time the suite
+ran**. `create_principal` commits — it has to, because the token is returned to
+a caller who will use it on a different connection — so rolling the fixture back
+left the test principals behind, and the next run collided on the unique
+username.
+
+That is the worst kind of test: green on the machine that wrote it, red on the
+next one. The fixture now removes what the tests create, and the suite was run
+twice in a row to prove it.
+
+Worth recording because the first commit of this stage claimed "223 passed" on
+the strength of a single isolated run. The claim was wrong when it was made.
+
 ## Signature
 
 | Role | Name | Date |

@@ -16,6 +16,14 @@ DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms
 
 @pytest.fixture
 def conn():
+    """A connection that cleans up after itself.
+
+    Creating a principal COMMITS -- it has to, because the token is returned to
+    a caller who will use it on another connection. So rolling back is not
+    enough: the fixture removes what the tests made. Without this the suite
+    passed in isolation and failed the second time it ran, which is the worst
+    kind of test.
+    """
     try:
         connection = psycopg.connect(DSN, connect_timeout=5)
     except psycopg.OperationalError as exc:
@@ -24,6 +32,11 @@ def conn():
         yield connection
     finally:
         connection.rollback()
+        with connection.cursor() as cur:
+            cur.execute("DELETE FROM principal WHERE username LIKE 'test.%'")
+            cur.execute("DELETE FROM audit_log WHERE actor IN ('test','inspector')")
+            cur.execute("DELETE FROM alert_rule WHERE name = 'bad-sev'")
+        connection.commit()
         connection.close()
 
 
