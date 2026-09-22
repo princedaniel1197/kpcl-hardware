@@ -55,6 +55,46 @@ async def _opcua_supervisor(session: ReadOnlySession, tags: list[dict],
         await asyncio.sleep(delay_s)
 
 
+async def _register_instance(dsn: str, instance: str) -> None:
+    """Announce this collector, for reporting only.
+
+    Nothing consults the registry before writing. Both collectors write freely
+    because the (tag_id, source_ts) primary key makes a duplicate impossible —
+    so redundancy here needs no consensus, no fencing and no split-brain
+    handling, and a wrong leader indication costs a label rather than data.
+    """
+    import socket
+    async with await psycopg.AsyncConnection.connect(dsn, connect_timeout=5) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO collector_instance (instance, host, pid,"
+                " started_at, last_seen) VALUES (%s,%s,%s,now(),now())"
+                " ON CONFLICT (instance) DO UPDATE SET host=EXCLUDED.host,"
+                " pid=EXCLUDED.pid, started_at=now(), last_seen=now()",
+                (instance, socket.gethostname(), os.getpid()))
+        await conn.commit()
+
+
+async def _heartbeat(dsn: str, instance: str, pipeline, interval_s: float = 5.0):
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            async with await psycopg.AsyncConnection.connect(
+                    dsn, connect_timeout=5) as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "UPDATE collector_instance SET last_seen=now(),"
+                        " samples=%s, link_up=%s, buffer_depth=%s"
+                        " WHERE instance=%s",
+                        (pipeline.received, pipeline.link_up,
+                         pipeline.buffer.depth, instance))
+                await conn.commit()
+        except psycopg.Error:
+            # The registry is for reporting. Losing it must not disturb
+            # acquisition, which is the thing that actually matters.
+            pass
+
+
 async def _health_tag_ids(dsn: str) -> dict[str, int]:
     """Health tag ids, read directly. The sink may be OMF, which has no way to
     ask a question."""
@@ -67,7 +107,7 @@ async def _health_tag_ids(dsn: str) -> dict[str, int]:
 
 async def run(config: CollectorConfig) -> None:
     stream = EventStream()
-    buffer = Buffer(config.buffer_path, config.buffer_max_rows,
+    buffer = Buffer(config.resolved_buffer_path(), config.buffer_max_rows,
                     config.buffer_warn_fraction)
 
     # Output format is configuration. Setting CRPMS_OMF_URL makes OMF the
@@ -110,13 +150,20 @@ async def run(config: CollectorConfig) -> None:
         await pipeline.drain()
 
     health_ids = await _health_tag_ids(config.dsn)
-    publisher = HealthPublisher(pipeline, health_ids, config.health_interval_s)
+    publisher = HealthPublisher(pipeline, health_ids, config.health_interval_s,
+                                instance=config.instance)
+    try:
+        await _register_instance(config.dsn, config.instance)
+    except psycopg.Error as exc:
+        log.warning("could not register instance %s: %s", config.instance, exc)
 
     session = ReadOnlySession(config.endpoint, pipeline.on_sample)
 
+    log.info("collector instance: %s", config.instance)
     await asyncio.gather(
         pipeline.run_forwarder(),
         _health_loop(publisher, pipeline),
+        _heartbeat(config.dsn, config.instance, pipeline),
         _opcua_supervisor(session, tags, config.reconnect_delay_s),
     )
 

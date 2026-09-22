@@ -29,24 +29,35 @@ from collector.pipeline import Pipeline
 
 log = logging.getLogger("collector.health")
 
-HEALTH_TAGS = {
-    "COLLECTOR_LINK_STATE":       ("Archive link state, 1 up 0 down", ""),
-    "COLLECTOR_BUFFER_DEPTH":     ("Buffered samples awaiting forward", "samples"),
-    "COLLECTOR_BUFFER_PCT":       ("Buffer fullness", "%"),
-    "COLLECTOR_SAMPLES_PER_SEC":  ("Samples received per second", "1/s"),
-    "COLLECTOR_LAST_FORWARD_AGE": ("Seconds since last successful forward", "s"),
-    "COLLECTOR_CPU_PCT":          ("Collector process CPU", "%"),
-    "COLLECTOR_MEM_MB":           ("Collector process resident memory", "MB"),
-    "COLLECTOR_GAPS":             ("Sequence gaps detected since start", "count"),
+# Measurement names. The tag name is COLLECTOR_<INSTANCE>_<MEASUREMENT>.
+HEALTH_MEASUREMENTS = {
+    "LINK_STATE":       ("Archive link state, 1 up 0 down", ""),
+    "BUFFER_DEPTH":     ("Buffered samples awaiting forward", "samples"),
+    "BUFFER_PCT":       ("Buffer fullness", "%"),
+    "SAMPLES_PER_SEC":  ("Samples received per second", "1/s"),
+    "LAST_FORWARD_AGE": ("Seconds since last successful forward", "s"),
+    "CPU_PCT":          ("Collector process CPU", "%"),
+    "MEM_MB":           ("Collector process resident memory", "MB"),
+    "GAPS":             ("Sequence gaps detected since start", "count"),
 }
+
+INSTANCES = ("primary", "secondary")
+
+
+def tag_name(instance: str, measurement: str) -> str:
+    """Health tag names carry the instance, so two collectors running against
+    the same archive are distinguishable rather than overwriting each other's
+    story (§455)."""
+    return f"COLLECTOR_{instance.upper()}_{measurement}"
 
 
 class HealthPublisher:
     def __init__(self, pipeline: Pipeline, tag_ids: dict[str, int],
-                 interval_s: float = 5.0) -> None:
+                 interval_s: float = 5.0, instance: str = "primary") -> None:
         self.pipeline = pipeline
         self.tag_ids = tag_ids
         self.interval_s = interval_s
+        self.instance = instance
         self._seq = 0
         self._last_cpu = self._cpu_seconds()
         self._last_wall = time.monotonic()
@@ -81,19 +92,20 @@ class HealthPublisher:
         age = pipeline.last_forward_age_s()
 
         readings = {
-            "COLLECTOR_LINK_STATE": 1.0 if pipeline.link_up else 0.0,
-            "COLLECTOR_BUFFER_DEPTH": float(pipeline.buffer.depth),
-            "COLLECTOR_BUFFER_PCT": round(pipeline.buffer.fraction_full * 100, 3),
-            "COLLECTOR_SAMPLES_PER_SEC": round(pipeline.samples_per_second(), 3),
-            "COLLECTOR_LAST_FORWARD_AGE": None if age is None else round(age, 3),
-            "COLLECTOR_CPU_PCT": round(self._cpu_percent(), 2),
-            "COLLECTOR_MEM_MB": round(self._memory_mb(), 2),
-            "COLLECTOR_GAPS": float(pipeline.gaps),
+            "LINK_STATE": 1.0 if pipeline.link_up else 0.0,
+            "BUFFER_DEPTH": float(pipeline.buffer.depth),
+            "BUFFER_PCT": round(pipeline.buffer.fraction_full * 100, 3),
+            "SAMPLES_PER_SEC": round(pipeline.samples_per_second(), 3),
+            "LAST_FORWARD_AGE": None if age is None else round(age, 3),
+            "CPU_PCT": round(self._cpu_percent(), 2),
+            "MEM_MB": round(self._memory_mb(), 2),
+            "GAPS": float(pipeline.gaps),
         }
 
         self._seq += 1
         out = []
-        for name, value in readings.items():
+        for measurement, value in readings.items():
+            name = tag_name(self.instance, measurement)
             tag_id = self.tag_ids.get(name)
             if tag_id is None:
                 continue

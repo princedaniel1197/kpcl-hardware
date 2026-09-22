@@ -40,7 +40,7 @@ POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
-        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo rig-stub outage-test compression-report \
+        migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo rig-stub redundancy-demo outage-test compression-report \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -75,6 +75,7 @@ help:
 	@echo "  omf-receiver       run the OMF receiver                (Stage 9)"
 	@echo "  omf-demo           Stage 9 acceptance test (OMF, switchable endpoint)"
 	@echo "  rig-stub           bench rig stand-in, NOT the rig      (Stage 10)"
+	@echo "  redundancy-demo    Stage 11 acceptance test (kill the primary)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
 	@echo "  compression-report Stage 4 ratios and reconstruction error"
 	@echo ""
@@ -203,6 +204,10 @@ loadtest:
 # ---------------------------------------------------------------------------
 
 # Stand-in for the bench rig, for testing the bridge without the hardware.
+redundancy-demo:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m collector.redundancy_demo
+
 rig-stub:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m firmware.rig_stub

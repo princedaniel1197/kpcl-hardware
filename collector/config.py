@@ -32,6 +32,21 @@ class CollectorConfig:
     reconnect_delay_s: float = 2.0
     instance: str = "primary"
 
+    def resolved_buffer_path(self) -> str:
+        """Each instance gets its own buffer file.
+
+        Two collectors sharing one SQLite buffer would corrupt each other's
+        store-and-forward: one would drain rows the other was still holding, and
+        the loss would appear as a gap nobody could explain.
+        """
+        if "{instance}" in self.buffer_path:
+            return self.buffer_path.format(instance=self.instance)
+        if self.instance == "primary":
+            return self.buffer_path
+        stem, _, suffix = self.buffer_path.rpartition(".")
+        return f"{stem}-{self.instance}.{suffix}" if stem else \
+            f"{self.buffer_path}-{self.instance}"
+
     @classmethod
     def from_env(cls) -> "CollectorConfig":
         return cls(

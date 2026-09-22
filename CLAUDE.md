@@ -152,5 +152,5 @@ Stage: 10 — BUILT, acceptance test BLOCKED on the physical rig
 (`fat/records/stage-10-hardware-rig.md`). Firmware, bridge and configuration are
 complete and verified against a stand-in; no probe has been unplugged because the
 rig has not been built. Stages 0 to 9 complete; records in `fat/records/`.
-Stage 11 has not been begun.
+Stage 11 complete (`fat/records/stage-11-redundancy.md`). Stage 12 has not been begun.
 Update this line as stages complete.
