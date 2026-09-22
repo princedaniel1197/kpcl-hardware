@@ -1,0 +1,23 @@
+Requested session timeout to be 3600000ms, got 600000ms instead
+capturing 180s at full rate from 14 tags ...
+
+tag                     raw   arch    ratio  CompDev  worst err    bound  verdict
+----------------------------------------------------------------------------------------
+U1_AUX_POWER            361     16    22.6:    0.240     0.2383    0.240  OK
+U1_BEARING_VIB          307    245     1.3:    0.050     0.0482    0.050  OK
+U1_BOILER_LIGHTUP         2   (too few samples to judge)
+U1_BREAKER_CLOSED         2   (too few samples to judge)
+U1_COAL_FLOW            352     16    22.0:    1.800     1.7740    1.800  OK
+U1_CONDENSER_VAC        351     17    20.6:    3.300     3.2753    3.300  OK
+U1_DRUM_PRESS           361     23    15.7:    0.900     0.8631    0.900  OK
+U1_FEEDWATER_FLOW       351     17    20.6:    7.500     7.4747    7.500  OK
+U1_GEN_STATOR_TEMP      361     18    20.1:    0.750     0.7478    0.750  OK
+U1_MS_PRESS             361     17    21.2:    0.750     0.7405    0.750  OK
+U1_MS_TEMP              361     19    19.0:    2.400     2.3879    2.400  OK
+U1_MW                   168     14    12.0:    1.000     0.9957    1.000  OK
+U1_TURB_ROLLING           3   (too few samples to judge)
+U1_TURB_SPEED           226     27     8.4:    3.600     3.5706    3.600  OK
+
+  tags within CompDev        : 11/11
+  best ratio                 : U1_AUX_POWER at 22.6:1
+  lowest ratio               : U1_BEARING_VIB at 1.3:1  (correct for a noisy tag)

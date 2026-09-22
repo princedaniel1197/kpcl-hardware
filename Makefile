@@ -41,7 +41,7 @@ DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
         migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo rig-stub redundancy-demo outage-test compression-report \
-        backup restore backup-install backup-uninstall capacity alerts alerts-watch seed-alerts export access \
+        fat backup restore backup-install backup-uninstall capacity alerts alerts-watch seed-alerts export access \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -78,6 +78,7 @@ help:
 	@echo "  rig-stub           bench rig stand-in, NOT the rig      (Stage 10)"
 	@echo "  redundancy-demo    Stage 11 acceptance test (kill the primary)"
 	@echo ""
+	@echo "  fat                run the automated FAT, write a report (Stage 14)"
 	@echo "  backup / restore   archive backup and clean-environment restore"
 	@echo "  backup-install     hourly backup under launchd (RPO 1 hour)"
 	@echo "  capacity           central capacity report          (§344)"
@@ -272,6 +273,14 @@ outage-test:
 # ---------------------------------------------------------------------------
 # Operations (Stage 13)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# The FAT (Stage 14)
+# ---------------------------------------------------------------------------
+
+fat:
+	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
+	$(VPY) -m fat.runner
 
 backup:
 	./ops/backup.sh
