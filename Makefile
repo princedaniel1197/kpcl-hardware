@@ -41,6 +41,7 @@ DB_CONTAINER  := crpms-timescaledb
 
 .PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
         migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo rig-stub redundancy-demo outage-test compression-report \
+        backup restore backup-install backup-uninstall capacity alerts alerts-watch seed-alerts export access \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
         scraper-logs scraper-status
 
@@ -76,6 +77,13 @@ help:
 	@echo "  omf-demo           Stage 9 acceptance test (OMF, switchable endpoint)"
 	@echo "  rig-stub           bench rig stand-in, NOT the rig      (Stage 10)"
 	@echo "  redundancy-demo    Stage 11 acceptance test (kill the primary)"
+	@echo ""
+	@echo "  backup / restore   archive backup and clean-environment restore"
+	@echo "  backup-install     hourly backup under launchd (RPO 1 hour)"
+	@echo "  capacity           central capacity report          (§344)"
+	@echo "  alerts             evaluate alert rules once        (§507)"
+	@echo "  export             machine-readable export          (§503)"
+	@echo "  access             list principals and roles        (§509)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
 	@echo "  compression-report Stage 4 ratios and reconstruction error"
 	@echo ""
@@ -260,6 +268,43 @@ compression-report:
 outage-test:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m collector.outage_test
+
+# ---------------------------------------------------------------------------
+# Operations (Stage 13)
+# ---------------------------------------------------------------------------
+
+backup:
+	./ops/backup.sh
+
+restore:
+	@test -n "$(DUMP)" || { echo "usage: make restore DUMP=backups/crpms-....dump"; exit 1; }
+	./ops/restore.sh "$(DUMP)"
+
+backup-install:
+	./deploy/install-backup.sh
+
+backup-uninstall:
+	@launchctl bootout "gui/$$UID/com.orianode.crpms.backup" 2>/dev/null || true
+	@rm -f "$$HOME/Library/LaunchAgents/com.orianode.crpms.backup.plist"
+	@echo "hourly backup removed"
+
+capacity:
+	@$(VPY) -m ops.capacity
+
+alerts:
+	@$(VPY) -m ops.alerts --once
+
+alerts-watch:
+	$(VPY) -m ops.alerts
+
+seed-alerts:
+	@$(VPY) -m ops.seed_alerts
+
+export:
+	@$(VPY) -m ops.export --hours $${HOURS:-24}
+
+access:
+	@$(VPY) -m ops.access list
 
 # ---------------------------------------------------------------------------
 # Karnataka SLDC generation recorder (scraper/). Not a build-plan stage.

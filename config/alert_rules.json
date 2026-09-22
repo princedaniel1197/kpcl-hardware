@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Alert rules (§507). Adding an alert is a row here, not code.",
+    "",
+    "Quality is a first-class condition: a rule can fire on a tag going Bad,",
+    "not only on a tag crossing a number. A system that can only alarm on",
+    "thresholds cannot tell you your instrument has failed -- it will happily",
+    "report that a dead transmitter is reading a perfectly normal 0.",
+    "",
+    "Every rule carries for_seconds, so a spike does not page anyone.",
+    "",
+    "recipients is empty by default. Email delivery needs CRPMS_SMTP_HOST and",
+    "is off until it is configured; a failure to deliver is recorded on the",
+    "alert row rather than swallowed, because an alerting system that silently",
+    "fails to alert is worse than none."
+  ],
+  "rules": [
+    {"name": "Unit 1 coal flow Bad", "subject_kind": "tag",
+     "subject": "U1_COAL_FLOW", "condition": "bad", "for_seconds": 20,
+     "severity": "critical",
+     "description": "The coal flow instrument has been disowned by the DCS. Heat rate and specific coal consumption are Bad while this holds."},
+
+    {"name": "Unit 1 bearing vibration high", "subject_kind": "tag",
+     "subject": "U1_BEARING_VIB", "condition": ">", "threshold": 7.1,
+     "for_seconds": 30, "severity": "critical",
+     "description": "ISO 10816 zone C/D boundary for this machine class."},
+
+    {"name": "Unit 1 main steam temperature low", "subject_kind": "tag",
+     "subject": "U1_MS_TEMP", "condition": "<", "threshold": 500,
+     "for_seconds": 120, "severity": "warning",
+     "description": "Sustained low main steam temperature at load."},
+
+    {"name": "Heat rate Bad", "subject_kind": "kpi",
+     "subject": "GrossUnitHeatRate", "condition": "bad", "for_seconds": 0,
+     "severity": "warning",
+     "description": "Heat rate cannot be computed; the reason names the input."},
+
+    {"name": "Bench rig hub probe Bad", "subject_kind": "tag",
+     "subject": "RIG_HUB_TEMP", "condition": "bad", "for_seconds": 15,
+     "severity": "warning",
+     "description": "The DS18B20 on the fan motor hub is not being read."},
+
+    {"name": "Primary collector not reporting", "subject_kind": "collector",
+     "subject": "primary", "condition": "stale", "for_seconds": 30,
+     "severity": "critical",
+     "description": "The primary collector has stopped heartbeating."},
+
+    {"name": "Collector buffer filling", "subject_kind": "collector",
+     "subject": "primary", "condition": ">", "threshold": 5000,
+     "for_seconds": 30, "severity": "warning",
+     "description": "The uplink has been down long enough to accumulate a large buffer."},
+
+    {"name": "Host disk nearly full", "subject_kind": "capacity",
+     "subject": "host_disk_used_pct", "condition": ">", "threshold": 85,
+     "for_seconds": 0, "severity": "critical",
+     "description": "Central capacity monitoring (§344)."}
+  ]
+}

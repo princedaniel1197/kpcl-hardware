@@ -38,10 +38,12 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["sim", "collector", "archive", "engine", "api", "scraper"]
+packages = ["sim", "collector", "archive", "engine", "api", "scraper", "ops",
+            "firmware"]
 
 [tool.pytest.ini_options]
-testpaths = ["sim", "collector", "archive", "engine", "api", "fat", "scraper"]
+testpaths = ["sim", "collector", "archive", "engine", "api", "fat", "scraper",
+            "ops", "firmware"]
 python_files = ["test_*.py", "*_test.py"]
 asyncio_mode = "auto"
 addopts = "-ra"

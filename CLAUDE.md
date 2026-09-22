@@ -153,5 +153,6 @@ Stage: 10 — BUILT, acceptance test BLOCKED on the physical rig
 complete and verified against a stand-in; no probe has been unplugged because the
 rig has not been built. Stages 0 to 9 complete; records in `fat/records/`.
 Stage 11 complete (`fat/records/stage-11-redundancy.md`). Stage 12 BUILT; its criterion is a human judgement and is outstanding
-(`fat/records/stage-12-visualisation.md`). Stage 13 has not been begun.
+(`fat/records/stage-12-visualisation.md`). Stage 13 complete (`fat/records/stage-13-remaining-requirements.md`).
+Stage 14 has not been begun.
 Update this line as stages complete.
