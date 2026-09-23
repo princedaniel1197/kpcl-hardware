@@ -137,3 +137,21 @@ the runner now refuses one.
 |---|---|---|
 | Performed by | | 2026-09-22 |
 | Witnessed by | | |
+
+### Run of 23 September, 04:27 UTC — 14 of 15, T-05 failed
+
+`FAT-20260923T042721Z.md`, from a clean tree at `59d66e8`. It started an hour
+early, by mistake, and is kept because it found a real defect: **T-05 failed on
+its frozen-value check.** The Stage 6 demonstration waited a fixed 10 s + 65 s
+after restarting the start-up before checking that U1_MW, pinned at 0 while the
+breaker is open, was flagged frozen. With the simulator's 90 s start-up the
+breaker closes 58 s in, so U1_MW was already ramping; the rule itself flagged
+frozen three times during the same run. It passed on 22 September only because
+the timings then happened to fit. The demonstration now times the check from the
+simulator's own clock and start-up length (52 s after the restart here), and
+says so rather than failing if a start-up is too short to hold the window.
+Re-run alone: 15 of 15.
+
+The same run measured T-12 at **0.027 % of one core per subscribed tag** (budget
+0.5 %) and T-04 at 8,176 of 8,176 samples — over a 6-minute window, which is why
+it is not the acceptance report.

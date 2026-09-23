@@ -51,6 +51,15 @@ def control(method: str, path: str, body: dict | None = None):
         return json.loads(raw) if raw else None
 
 
+def _breaker_close_fraction() -> float:
+    """How far into the start-up the simulator closes the breaker: from its own
+    phase table, so the two cannot disagree."""
+    from sim.plant import BREAKER_CLOSE_AT, PHASE_FRACTION, PHASE_ORDER, Phase
+    before = sum(PHASE_FRACTION[p] for p in PHASE_ORDER[:PHASE_ORDER.index(
+        Phase.SYNCHRONISATION)])
+    return before + PHASE_FRACTION[Phase.SYNCHRONISATION] * BREAKER_CLOSE_AT
+
+
 def tag_id(conn, name: str) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM tag WHERE name = %s", (name,))
@@ -173,23 +182,44 @@ def main() -> int:
             q.severity(rate.source_quality or 0) == 0)
 
         # --- 4. frozen -------------------------------------------------------
-        # U1_MW is exactly 0 with the breaker open. Wait long enough that a
-        # short window contains only post-restart zeros.
-        print("\n  4. FROZEN — waiting for enough post-restart history on")
-        print("     U1_MW to cover its 30 s frozen window. The samples come")
-        print("     from the collector's max-time read: an unchanging tag")
-        print("     sends no subscription notifications at all.")
-        # The lookback must comfortably exceed the frozen window plus one
-        # heartbeat interval plus jitter. At 45 s against a 30 s window and a
-        # 10 s heartbeat it is marginal: depending on where the last read
-        # landed, the history may not reach back past the window boundary, and
-        # the rule correctly refuses to claim more than the history supports.
-        time.sleep(65.0)
-        frozen, rules = check(conn, "U1_MW",
-                              "     U1_MW pinned at 0, breaker open",
-                              lookback=90.0)
+        # U1_MW is exactly 0 while the breaker is open, and the check has to
+        # land in that stretch: after the frozen window and a heartbeat have
+        # passed since the restart, and before the breaker closes. The first
+        # version slept a fixed 65 s. With a 90 s start-up the breaker closes
+        # 58 s in, so by then U1_MW was ramping and "frozen" could not be
+        # flagged; it passed on 22 September only because the timings then
+        # happened to fit. Now the timing is taken from the simulator's own
+        # clock and its own start-up length, and a start-up too short to hold
+        # the window says so instead of reporting a failure of the rule.
+        tid_mw = tag_id(conn, "U1_MW")
+        with conn.cursor() as cur:
+            cur.execute("SELECT params FROM quality_rule WHERE tag_id=%s"
+                        " AND rule_type='frozen'", (tid_mw,))
+            window_s = float(cur.fetchone()[0]["window_seconds"])
+            cur.execute("SELECT max_time_ms FROM tag WHERE id=%s", (tid_mw,))
+            heartbeat_s = (cur.fetchone()[0] or 60000) / 1000.0
+        status = control("GET", "/status")
+        breaker_closes_s = status["startup_seconds"] * _breaker_close_fraction()
+        ready_s = window_s + 2 * heartbeat_s + 2.0
+        print("\n  4. FROZEN — U1_MW is exactly 0 until the breaker closes")
+        print(f"     ({breaker_closes_s:.0f} s into the start-up). Checking once")
+        print(f"     {ready_s:.0f} s of it has passed: the {window_s:.0f} s frozen window")
+        print(f"     plus two {heartbeat_s:.0f} s max-time reads, which are where the")
+        print("     samples of an unchanging tag come from.")
+        if ready_s >= breaker_closes_s - 1.0:
+            print("     the start-up is too short to hold the frozen window with the")
+            print("     breaker open; run the simulator with a longer start-up")
+            r["frozen: start-up long enough to test"] = False
+            rules, frozen = {}, None
+        else:
+            while control("GET", "/status")["elapsed_s"] < ready_s:
+                time.sleep(0.5)
+            frozen, rules = check(conn, "U1_MW",
+                                  "     U1_MW pinned at 0, breaker open",
+                                  lookback=ready_s + 30.0)
         r["frozen flagged"] = "frozen" in rules
-        r["frozen: source stayed Good"] = q.severity(frozen.source_quality or 0) == 0
+        r["frozen: source stayed Good"] = (
+            frozen is not None and q.severity(frozen.source_quality or 0) == 0)
 
         # --- the distinction --------------------------------------------------
         print("\n" + "=" * 76)
