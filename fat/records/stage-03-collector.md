@@ -123,6 +123,65 @@ that restarts on failure will convert a crash into something that looks like
 uptime. `runs` and `last exit code` are the figures that tell the truth, and
 they are worth watching for every supervised process in the final system.
 
+## Addendum — 23 September 2026: re-run after the code review
+
+Corrections to the record above, from the review of 23 September
+(`fat/records/review-2026-09-23.md`):
+
+- **"sequence gaps 0" proved nothing.** The sequence number was assigned by the
+  collector to what it received, and checked for continuity against itself; it
+  was consecutive by construction and never reached the archive. It has been
+  replaced by the server's own NotificationMessage numbering (source to
+  collector) and per-run sequence numbers stored with every row (collector to
+  archive).
+- **"Peak exceeds depth-at-restore because live samples are buffered during the
+  drain" was wrong.** They were not: they waited in memory for the whole drain.
+  The 41-sample difference was samples buffered between the "depth at restore"
+  reading and the reconnection. Live samples are now moved to the buffer
+  between drained batches.
+- **The `flush_to_buffer()` fix applied only in this test's harness.**
+  `python -m collector` did not call it; now SIGTERM and SIGINT do.
+- **The deadband row in the defects table was wrong.** `deadband_monitor` does
+  set `Trigger = StatusValue`, but asyncua's server ANDs it with the deadband,
+  so a tag going Bad while steady is *not* reported (Stage 6 found this). The
+  source deadband is now per server (`config/sources.json`).
+- **The harness deleted every acquired sample** at the start of each run so its
+  counts would compare. It now compares over the ledger's span and leaves
+  history alone, and refuses to run beside another collector.
+
+Re-run on 23 September against the rewritten collector (run 23, 20 tags):
+
+```
+[1] running normally for 300s: received 8,646, forwarded 8,631
+[2] stopping crpms-timescaledb at 03:53:51 UTC
+      t+30s  buffer=  864 ... t+180s buffer=5,162   link=DOWN
+[3] starting it at 03:56:51 UTC
+    drain: 5,254 samples in 0.54 s, 0 left
+
+  samples the collector received         : 13,911
+  missing from the archive                : 0          ZERO LOSS: PASS
+  duplicate keys                          : 0          PASS
+  quality/value mismatches                : 0          PASS
+  rows with server_ts <= source_ts        : 0          PASS
+  rows with no server_ts                  : 0
+  rows stamped inside the 180 s outage    : 4,648      TREND HAS NO GAP: PASS
+  buffer overflow                         : 0          PASS
+  NotificationMessages missed (server numbering): 0    PASS
+  rows numbered by run 23                 : 13,908
+  holes in the run's sequence             : 0          PASS
+  recorded in collector_loss              : 0
+STAGE 3 OUTAGE TEST: PASS
+```
+
+13,911 received against 13,908 numbered rows: the other 3 are the initial
+values of `U1_BOILER_LIGHTUP`, `U1_TURB_ROLLING` and `U1_BREAKER_CLOSED`, which
+had not changed since an earlier collector run archived them at 03:31–03:32.
+Subscribing delivers the current value again; the first write keeps the row,
+under the earlier run's key. Checked by query, and the harness now prints this
+accounting itself. The run's figure of 41,109 "rows in the same span" counted
+from 03:31 for the same reason, and the harness now counts from the test's
+start.
+
 ## Signature
 
 | Role | Name | Date |

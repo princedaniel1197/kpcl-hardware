@@ -2,20 +2,31 @@
 
 ```bash
 make api      # FastAPI on :8000 — event stream and archive
+make token    # a read-only access token, shown once
 make ui       # Vite dev server on :5173, proxying /api and /ws
 ```
+
+Every API call is authenticated (§509), so the first screen asks for a token.
+It is kept in `sessionStorage` — gone when the tab closes — sent as a bearer
+header, and on the WebSocket as a subprotocol; it never appears in a URL.
 
 Built last, deliberately. It hangs off real events from a working system; built
 first it would have been a nice interface over nothing.
 
-## Every particle is an event
+## Every move a particle makes is an event
 
-Nothing in the pipeline view is on a timer. A dot appears because the collector
-emitted `value_received`, and it reaches the historian because the collector
-emitted `value_forwarded`. When the archive is unreachable the collector emits
-`value_buffered` instead — so the dots stop at the buffer and the buffer fills,
+A dot appears at the DCS because the collector emitted `value_received`, and
+travels as far as the collector. It goes on to the historian only when the
+collector reports `value_forwarded`; it stops at the buffer when the collector
+reports `value_buffered`; it leaves the buffer when the collector reports the
+drain. Batch events are matched to dots oldest-first, the order the collector
+sends in. So when the archive is unreachable the dots pile up at the buffer —
 not because the animation was told the network is down, but because that is
 what the collector actually reported doing.
+
+(Until 23 September the header of `Pipeline.jsx` said this while the code
+animated every received value all the way on a timer and only reacted to
+`value_buffered`. The code now does what the comment said.)
 
 ## The event stream does not go through the archive
 
@@ -37,21 +48,33 @@ That socket sends and never receives: the collector still has no write path.
 - An **Uncertain** value is an amber circle.
 - On a trend, a Bad sample **breaks the line** — `connectNulls={false}` is the
   whole difference between a chart that tells the truth and one that invents a
-  straight line across a sensor failure. A `×` marks each Bad point so a break
-  is distinguishable from "no data yet".
-- On the mimic, a Bad value reads `- - -`, never `0`.
+  straight line across a sensor failure. A dashed red vertical line marks each
+  Bad sample, at its instant and at no particular value (an earlier version
+  marked it at y = 0, which is a picture of a zero).
+- The trend's x-axis is **time**, so a stretch with no data — the archive
+  unreachable — is blank space that fills in from the left as the buffer
+  drains, rather than disappearing between evenly spaced points.
+- On the mimic, a Bad value reads `- - -`, a digital with no known state reads
+  `?`, and a bar or vessel with no value is hatched. (An earlier version drew a
+  Bad speed as "0 rpm", a Bad breaker as OPEN and a Bad load as an empty bar.)
 
 ## The mimic follows ANSI/ISA-101.01-2015
 
 Grey, low-saturation base; **colour reserved for abnormal states**. On a
 conventional colourful mimic an alarm competes with the decoration; here,
-anything coloured is the only thing coloured. Four-level display hierarchy: Unit
-Overview and Unit TSI Overview are levels 2 and 3 (§469), and the layout is
-identical across units (§470).
+anything coloured is the only thing coloured. Of the standard's four-level
+display hierarchy, levels 2 and 3 are built — Unit Overview and Unit TSI
+Overview (§469). Level 1 (plant overview) and level 4 (diagnostic detail) are
+not. The mimic takes a unit's tag prefix and asset code and nothing else, so
+every unit is drawn by the same code in the same places (§470).
 
 Live bindings: the turbine rotor turns at the **actual** speed tag (at 3000 rpm
-it turns; at standstill it does not), the breaker draws open or closed, the load
-bar fills to 210 MW.
+it turns; at standstill it does not; with no value it is drawn dashed and still),
+the breaker draws open, closed or unknown, the load bar fills to the rated 210 MW.
+
+The KPI strip and the KPI node read values the engine service computes
+continuously (`python -m engine`); before 23 September nothing ran it, and they
+showed whatever the last demonstration script had left.
 
 The drum vessel shows **pressure**, not level, and says so on the display. This
 simulator has no drum level instrument and drawing one would be inventing it.

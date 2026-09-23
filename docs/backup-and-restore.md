@@ -11,9 +11,13 @@ make backup            # or: ./ops/backup.sh
 ```
 
 `pg_dump --format=custom --compress=6` inside the container, to
-`backups/crpms-<UTC timestamp>.dump`, with `KEEP=7` generations retained. Every
-backup writes a row to `audit_log`, so "when was the last good backup" is
-answerable from the same place as everything else.
+`backups/crpms-<UTC timestamp>.dump`, with `KEEP=7` generations retained. The
+dump is written under a temporary name and renamed only when `pg_dump` has
+succeeded, so a dump that failed half way is never mistaken for a backup or
+counted towards retention (until 23 September it was). Every backup writes a row
+to `audit_log`, so "when was the last good backup" is answerable from the same
+place as everything else. The Docker CLI is found on PATH or inside Docker
+Desktop (`ops/docker.sh`), or set with `DOCKER=`.
 
 ## Restoring into a clean environment
 
@@ -22,20 +26,24 @@ make restore DUMP=backups/crpms-20260922T192424Z.dump
 ```
 
 The restore builds a **separate container and database** and never touches the
-live one. A restore procedure that has only ever been run over the top of a
+live one. It exits with `pg_restore`'s status, so a failed restore cannot be
+reported as a success by anything that runs it (until 23 September it exited 0
+whatever happened). A restore procedure that has only ever been run over the top of a
 working system has not been tested: the failure it must survive is the system
 being gone.
 
 ## Measured figures
 
-Measured on 2026-09-22, on a 10.15 million row archive:
+| | 22 September | 23 September, re-verified after the schema changes |
+|---|---|---|
+| Archive | 10.15 million rows | 10.92 million rows |
+| Backup duration | **8 s** | **12 s** |
+| Backup size | **154.9 MB** (from a 1.1 GB database) | **167.9 MB** |
+| **RTO** — restore into a clean container, verified | **20 s** | **36 s** |
+| Rows restored | **10,155,600 of 10,155,600** | **10,921,597 of 10,921,597** samples up to the dump's newest; 336 of 336 audit rows |
 
-| | Measured |
-|---|---|
-| Backup duration | **8 s** |
-| Backup size | **154.9 MB** (from a 1.1 GB database) |
-| **RTO** — restore into a clean container, verified | **20 s** |
-| Rows restored | **10,155,600 of 10,155,600** |
+The 23 September restore carried the append-only trigger on `audit_log`
+(migration 015) and the new foreign keys across intact.
 
 **RPO** is the backup interval. With the supplied hourly schedule the RPO is
 **one hour**: up to an hour of samples can be lost if the archive is destroyed

@@ -33,6 +33,7 @@ import asyncio
 import datetime as dt
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -51,8 +52,10 @@ from collector.sink import ArchiveSink, SinkUnavailable
 
 log = logging.getLogger("outage")
 
-DOCKER = "/Applications/Docker.app/Contents/Resources/bin/docker"
-CONTAINER = "crpms-timescaledb"
+# The docker CLI: $DOCKER, else on PATH, else inside Docker Desktop for macOS.
+DOCKER = (os.environ.get("DOCKER") or shutil.which("docker")
+          or "/Applications/Docker.app/Contents/Resources/bin/docker")
+CONTAINER = os.environ.get("CRPMS_DB_CONTAINER", "crpms-timescaledb")
 
 
 def docker(*args: str) -> None:
@@ -128,6 +131,7 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
         health_ids = {n: i for n, i in await cur.fetchall()}
 
     ledger = Ledger()
+    test_began = dt.datetime.now(dt.timezone.utc)
 
     def publish_gap(subscription_id: int, sequence_number: int, missed: int) -> None:
         stream.emit(ev.GAP_DETECTED, subscription=subscription_id,
@@ -221,19 +225,27 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
     last_ts = max(dt.datetime.fromisoformat(src) for _, src in ledger.received)
     names = sorted({name for name, _ in ledger.received})
     with psycopg.connect(config.dsn) as conn, conn.cursor() as cur:
+        # Every row that could match a ledger key. The span starts at the
+        # oldest key, which can be long before the test: a digital that has not
+        # changed is first delivered with the timestamp of its last change.
         cur.execute("""
-            SELECT t.name, s.source_ts, s.server_ts, s.value, s.quality
+            SELECT t.name, s.source_ts, s.server_ts, s.value, s.quality,
+                   s.collector_run
             FROM sample s JOIN tag t ON t.id = s.tag_id
             WHERE t.name = ANY(%s) AND s.source_ts BETWEEN %s AND %s
         """, (names, first_ts, last_ts))
+        rows = cur.fetchall()
         archive = {(name, src.isoformat()): (srv, val, q)
-                   for name, src, srv, val, q in cur.fetchall()}
+                   for name, src, srv, val, q, _ in rows}
+        run_of = {(name, src.isoformat()): run for name, src, _, _, _, run in rows}
 
+        # Counted from the moment the test began, for comparison with what
+        # this run received.
         cur.execute("""
             SELECT count(*), count(DISTINCT (s.tag_id, s.source_ts))
             FROM sample s JOIN tag t ON t.id = s.tag_id
             WHERE t.name = ANY(%s) AND s.source_ts BETWEEN %s AND %s
-        """, (names, first_ts, last_ts))
+        """, (names, test_began, last_ts))
         total_rows, distinct_keys = cur.fetchone()
 
         cur.execute("SELECT count(*), coalesce(sum(missing), 0)"
@@ -248,8 +260,10 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
 
     # a. nothing acquired is missing
     missing = [k for k in ledger.received if k not in archive]
+    held_elsewhere = [k for k in ledger.received
+                       if k in run_of and run_of[k] != run_id]
     print(f"\n  samples the collector received : {len(ledger.received):,}")
-    print(f"  rows in the archive, same span : {total_rows:,}")
+    print(f"  rows in the archive since the test began: {total_rows:,}")
     print(f"  missing from the archive       : {len(missing)}")
     if missing:
         ok = False
@@ -329,6 +343,14 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
     print(f"    NOTHING MISSED AT THE SOURCE: {'PASS' if missed == 0 else 'FAIL'}")
     ok = ok and missed == 0
     print(f"\n  rows numbered by run {run_id}         : {numbered_rows:,}")
+    print(f"  received, but archived under an earlier run's key: "
+          f"{len(held_elsewhere)}")
+    print("    (a value unchanged since an earlier collector archived it is")
+    print("     delivered again on subscribe; the first write keeps the row)")
+    accounted = numbered_rows + len(held_elsewhere) == len(ledger.received)
+    print(f"    EVERY RECEIVED SAMPLE ACCOUNTED FOR: "
+          f"{'PASS' if accounted else 'FAIL'}")
+    ok = ok and accounted
     print(f"  holes in the run's sequence    : {seq_holes} "
           f"({seq_missing} samples)")
     print(f"  recorded in collector_loss     : {recorded_lost}")

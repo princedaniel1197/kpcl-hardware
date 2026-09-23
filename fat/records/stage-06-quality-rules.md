@@ -149,6 +149,27 @@ and an ungated rule would fire through every start-up. A check that cries wolf
 through every normal evolution gets switched off, so the regime is part of the
 rule.
 
+## Addendum — 23 September 2026
+
+- **The out-of-range condition was forced without an audit row.** The
+  demonstration narrowed U1_MS_TEMP's EURange with a direct UPDATE and restored
+  it the same way, so `audit_log` never showed the range had been anything but
+  0–600 °C — and the 1,251 range flags it left looked, in the FAT report, like
+  a defect in the tag configuration. It now changes configuration through
+  `archive/audit.py` and restores in a `finally`.
+- Two of the fifteen checks tested a constant (`severity(RATE_EXCEEDED) == 1`)
+  rather than the flag the rule produced. They now test the flag.
+- Rate of change is flagged plain `Uncertain` from 23 September.
+  `UncertainSensorNotAccurate`, used above, says the value is at a sensor
+  limit, which the rule does not know.
+- The "no server-side deadband" decision is now per server
+  (`config/sources.json`), on by default. Re-measured on 23 September: with the
+  deadband at the source, 6.8 notifications/s and **0** Bad notifications for a
+  forced tag; without, 22.0/s and the Bad notification arrived. The 2.2× cost
+  quoted above was measured during a start-up; at steady load it was 3.2×.
+- Until 23 September nothing ran these rules except this demonstration. The
+  engine service (`python -m engine`) now evaluates them every 10 seconds.
+
 ## Signature
 
 | Role | Name | Date |

@@ -2,12 +2,16 @@
 //
 // DCS -> Collector -> Buffer -> Network -> Historian -> KPI Engine -> Dashboard
 //
-// EVERY PARTICLE IS AN EVENT. Nothing here is on a timer: a dot appears because
-// the collector emitted `value_received`, and it reaches the historian because
-// the collector emitted `value_forwarded`. When the archive is unreachable the
-// events say `value_buffered` instead, so the dots stop at the buffer and the
-// buffer fills — not because the animation was told the network is down, but
-// because that is what the collector actually reported doing.
+// EVERY MOVE A PARTICLE MAKES IS AN EVENT. A dot appears at the DCS because the
+// collector emitted `value_received`, and travels to the collector. It goes on
+// to the historian only when the collector reports `value_forwarded` for it;
+// it stops at the buffer when the collector reports `value_buffered`; and it
+// leaves the buffer when the collector reports the drain. Samples are matched
+// to those batch events oldest-first, which is the order the collector sends
+// them in. Nothing moves further than the collector has said it went -- so when
+// the archive is unreachable the dots pile up at the buffer, not because the
+// animation was told the network is down, but because that is what the
+// collector actually reported doing.
 //
 // A Bad value is drawn differently in transit and is SEEN to be rejected at the
 // KPI node, with its reason, rather than passing through.
@@ -90,7 +94,12 @@ export default function Pipeline({ events, status, kpis }) {
       if (latest.kind === 'value_buffered') {
         n.buffered += latest.count ?? 1
         n.bufferDepth = latest.depth ?? n.bufferDepth
-        n.linkUp = false
+        // Buffering because a forward failed means the link is down. Samples
+        // that arrive during a drain, or are flushed at shutdown, are buffered
+        // with the link up, and must not paint the network red.
+        if (latest.reason === 'link down' || latest.reason === 'forward failed') {
+          n.linkUp = false
+        }
       }
       if (latest.kind === 'link_state') {
         n.linkUp = latest.up
@@ -108,21 +117,39 @@ export default function Pipeline({ events, status, kpis }) {
     if (latest.kind === 'value_received') {
       const severity = ((latest.quality >>> 30) & 3)
       const id = nextId.current++
-      // A received value travels DCS -> Collector always. How much further it
-      // gets is decided by what the collector reports next, not by this code.
-      setParticles((p) => [...p.slice(-80), {
-        id, born: performance.now(), tag: latest.tag,
-        quality: latest.quality, severity,
-        // Bad values are stopped and shown at the KPI node; everything else
-        // runs the whole path.
-        stop: severity === 2 ? 5 : SEGMENTS,
-        buffered: false,
+      // As far as the collector, and no further, until the collector says.
+      setParticles((p) => [...p.slice(-160), {
+        id, born: performance.now(), moved: performance.now(), tag: latest.tag,
+        quality: latest.quality, severity, from: 0, stop: 1, buffered: false,
       }])
     }
+    // Where a released particle ends up: a Bad value is stopped at the KPI
+    // engine and shown there; everything else runs through to the dashboard.
+    const destination = (x) => (x.severity === 2 ? 5 : SEGMENTS)
+    if (latest.kind === 'value_forwarded') {
+      let n = latest.count ?? 1
+      setParticles((p) => p.map((x) => {
+        if (n > 0 && x.stop === 1 && !x.buffered) {
+          n -= 1
+          return { ...x, from: x.stop, stop: destination(x), moved: performance.now() }
+        }
+        return x
+      }))
+    }
     if (latest.kind === 'value_buffered') {
-      // Anything still in flight past the buffer turns back: this is the
-      // moment the picture shows the uplink gone.
-      setParticles((p) => p.map((x) => ({ ...x, stop: Math.min(x.stop, 2), buffered: true })))
+      let n = latest.count ?? 1
+      setParticles((p) => p.map((x) => {
+        if (n > 0 && x.stop === 1 && !x.buffered) {
+          n -= 1
+          return { ...x, from: x.stop, stop: 2, buffered: true, moved: performance.now() }
+        }
+        return x
+      }))
+    }
+    if (latest.kind === 'buffer_drained') {
+      setParticles((p) => p.map((x) => (x.buffered && x.stop === 2
+        ? { ...x, from: 2, stop: destination(x), moved: performance.now() }
+        : x)))
     }
   }, [events])
 
@@ -135,10 +162,19 @@ export default function Pipeline({ events, status, kpis }) {
     return () => cancelAnimationFrame(raf)
   }, [])
 
+  // Particles that have arrived are cleared; ones held at the buffer stay while
+  // the outage lasts (the list is capped), because the pile at the buffer is
+  // the picture. One held at the collector that nothing ever released -- a
+  // sample compression chose not to archive -- is cleared after a while.
   useEffect(() => {
     const t = setInterval(() => {
       const now = performance.now()
-      setParticles((p) => p.filter((x) => now - x.born < TRANSIT_MS * SEGMENTS + 2500))
+      setParticles((p) => p.filter((x) => {
+        const arrived = now - x.moved > TRANSIT_MS * (x.stop - x.from) + 2500
+        if (x.buffered && x.stop === 2) return now - x.moved < 300000
+        if (x.stop === 1) return now - x.moved < 10000
+        return !arrived
+      }))
     }, 2000)
     return () => clearInterval(t)
   }, [])
@@ -191,8 +227,8 @@ export default function Pipeline({ events, status, kpis }) {
   // --- particle overlay ----------------------------------------------------
   const now = performance.now()
   const dots = particles.map((p) => {
-    const elapsed = now - p.born
-    const progress = Math.min(elapsed / TRANSIT_MS, p.stop)
+    const elapsed = now - p.moved
+    const progress = Math.min(p.from + elapsed / TRANSIT_MS, p.stop)
     const segment = Math.min(Math.floor(progress), SEGMENTS - 1)
     const within = progress - segment
     const x0 = LAYOUT[segment][2] + NODE_W

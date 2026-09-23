@@ -156,6 +156,34 @@ the status-bit-to-BadDeviceFailure mapping, per-point isolation, the sentinel
 double-check, the stand-in's protocol handling, and that the bridge issues no
 Modbus write and does not live in the collector package.
 
+## Addendum — 23 September 2026: the firmware compiles; four defects fixed
+
+Still **NOT PASSED** — nothing has been flashed and no probe unplugged. What
+changed (details in `fat/records/review-2026-09-23.md`, A1):
+
+- **It compiles**, both builds, `-Wall -Wextra`, versions pinned: TCP 61.6 %
+  flash, RTU 26.0 %. It never could have before: the eModbus line in
+  `platformio.ini` named a package the registry does not have.
+- **Relays are active-low.** The version above would have energised both relays
+  at boot and zeroed the current sensor with the fans running.
+- **Probes are identified by ROM address.** The version above took the first
+  probe on the bus as the hub; with the hub unplugged at boot, which is this
+  stage's test, the ambient probe would have been published as the hub.
+- Register map version 2: signed mean current, a sentinel on every channel, the
+  supply bit meaning "measurable", 85.0 °C alone rejected, a zero register, a
+  re-zero coil. The bridge maps unconfigured probes to `BadConfigurationError`
+  and a saturated supply ADC to `BadOutOfRange`.
+- An RTU build over RS-485, and a bridge that reads either.
+
+The steps in "To close this record" change: copy `src/secrets.h.example` to
+`src/secrets.h` instead of editing `main.cpp`; `pio run -e tcp -t upload`; then
+**read the two probe ROM addresses from the serial monitor into
+`src/rig_config.h`** and flash again — until then both temperatures are
+invalid by design. Confirm the serial monitor prints a *plausible* ACS712 zero.
+
+`sim/test_bridge.py`: 24 tests, including the path end to end through the
+stand-in over real Modbus TCP into a real OPC UA server.
+
 ## Signature
 
 | Role | Name | Date |

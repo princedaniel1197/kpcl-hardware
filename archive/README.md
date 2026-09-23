@@ -19,11 +19,23 @@ transaction block.
 
 ## The two tables everything turns on
 
-**`sample`** — `(tag_id, source_ts, server_ts, value, quality)`.
+**`sample`** — `(tag_id, source_ts, server_ts, value, quality, collector_run, seq)`.
 
 `source_ts` is when the value was produced; `server_ts` is when it went on the
-wire. Both are stored, both are `NOT NULL`, and neither is ever derived from the
-other (§335). `sample_decoded` exposes `server_ts - source_ts` as `transit`.
+wire. Neither is ever derived from the other (§335). `source_ts` is `NOT NULL`;
+`server_ts` is **nullable** since migration 014, because when no server stamped a
+value the honest record is NULL — the column used to be `NOT NULL`, and that is
+why the collector filled a missing ServerTimestamp with the source timestamp,
+producing exactly the identical-timestamps fingerprint T-07 looks for. The
+collector's own health samples have no server_ts. `sample_decoded` exposes
+`server_ts - source_ts` as `transit`, NULL where there is no server_ts.
+
+`collector_run` and `seq` (migration 014) say which collector run archived the
+row and its place in that run's per-tag numbering. `sample_seq_gap` lists the
+holes, and says whether another run (first write wins) or `collector_loss` (the
+buffer-overflow ledger) accounts for each. Rows written other than by a
+numbered collector run — the load test, the OMF receiver, anything from before
+23 September — have neither.
 
 The primary key is `(tag_id, source_ts)`. Replay cannot duplicate because the
 schema forbids it, not because the writer remembers not to (§382, §648). The
@@ -70,11 +82,13 @@ the ones that survived more cheaply.
 |---|---|---|
 | `element_template`, `attribute_template` | templates, including derived ones | §341, §392 |
 | `element`, `attribute` | the hierarchy, self-referencing, with permanent asset codes | §392 |
-| `tag` | name, units, instrument span, scan rate, compression deadbands | §436, §442 |
+| `tag` | name, units, instrument span, scan rate, compression deadbands and whether to compress (`compress`, default false), where it lives in the source (`source_path`, no default) | §436, §442 |
 | `sample` | the hypertable | §335, §382 |
 | `event_frame`, `event_milestone`, `event_frame_summary` | Stage 8 | §472, §475 |
 | `kpi_definition`, `kpi_value` | versioned equations and traceable results | §320, §379, §381 |
-| `audit_log` | actor, timestamp, old value, new value, reason | §433 |
+| `audit_log` | actor, timestamp, old value, new value, reason — **append-only**: UPDATE, DELETE and TRUNCATE are refused by trigger (migration 015) | §433 |
+| `collector_run`, `collector_loss` | each collector start; each range the buffer discarded on overflow | §319, §462 |
+| `sldc_*` | the Karnataka SLDC recorder's own tables (`scraper/migrations/`), not part of the staged build | — |
 
 `kpi_definition.bad_data_treatment` accepts exactly one value, `propagate`. The
 column exists because the tender asks for the treatment to be declared, not
@@ -83,6 +97,6 @@ because substitution is an option; a CHECK constraint refuses anything else.
 ## Tests
 
 ```bash
-pytest archive/test_schema.py -q     # 16, fast, each in a rolled-back transaction
+pytest archive/ -q                   # schema and audit, each in a rolled-back transaction
 make loadtest                        # the 10M-row acceptance test
 ```

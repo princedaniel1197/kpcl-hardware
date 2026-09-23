@@ -72,7 +72,11 @@ async def _register_instance(dsn: str, instance: str) -> None:
                 "INSERT INTO collector_instance (instance, host, pid,"
                 " started_at, last_seen) VALUES (%s,%s,%s,now(),now())"
                 " ON CONFLICT (instance) DO UPDATE SET host=EXCLUDED.host,"
-                " pid=EXCLUDED.pid, started_at=now(), last_seen=now()",
+                " pid=EXCLUDED.pid, started_at=now(), last_seen=now(),"
+                # A restarted instance starts its counts again; leaving the
+                # previous process's figures showed a collector that had not
+                # yet acquired anything as having acquired thousands.
+                " samples=0, link_up=false, buffer_depth=0",
                 (instance, socket.gethostname(), os.getpid()))
         await conn.commit()
 
@@ -178,13 +182,14 @@ async def run(config: CollectorConfig) -> None:
 
     log.info("collector instance: %s", config.instance)
     from collector.event_server import serve as serve_events
+    stop = asyncio.Event()
+    events_server = asyncio.create_task(serve_events(
+        stream, pipeline, config.instance, config.event_host, config.event_port,
+        session=session, stop=stop))
     tasks = [
         asyncio.create_task(pipeline.run_forwarder()),
         asyncio.create_task(_health_loop(publisher, pipeline)),
         asyncio.create_task(_heartbeat(config.dsn, config.instance, pipeline)),
-        asyncio.create_task(serve_events(stream, pipeline, config.instance,
-                                         config.event_host, config.event_port,
-                                         session=session)),
         asyncio.create_task(_opcua_supervisor(session, tags,
                                               config.reconnect_delay_s)),
     ]
@@ -195,11 +200,12 @@ async def run(config: CollectorConfig) -> None:
     # start. Without this, `kill <pid>` lost it. (A SIGKILL cannot be caught;
     # what it costs is bounded by the batch linger and, for compressed tags, by
     # max_time. See pipeline.py.)
-    stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stop.set)
     stopper = asyncio.create_task(stop.wait())
+    # Only a stop request or a failed acquisition task ends the collector. The
+    # event stream ending -- its port taken, say -- does not.
     done, _ = await asyncio.wait([stopper, *tasks],
                                  return_when=asyncio.FIRST_COMPLETED)
     for task in done:
@@ -207,6 +213,11 @@ async def run(config: CollectorConfig) -> None:
                 and task.exception() is not None):
             log.error("collector task failed: %r", task.exception())
     log.info("stopping")
+    stop.set()
+    try:
+        await asyncio.wait_for(events_server, timeout=5)
+    except (asyncio.TimeoutError, Exception):
+        events_server.cancel()
     for task in tasks:
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)

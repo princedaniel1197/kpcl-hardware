@@ -84,10 +84,39 @@ def build_app(stream, pipeline, instance: str, session=None) -> FastAPI:
 
 
 async def serve(stream, pipeline, instance: str, host: str, port: int,
-                session=None) -> None:
+                session=None, stop: asyncio.Event | None = None) -> None:
+    """Serve until `stop` is set, then shut down the way uvicorn means to be
+    shut down -- closing open sockets -- rather than being cancelled mid-send,
+    which left a traceback in the log on every clean stop."""
     import uvicorn
     config = uvicorn.Config(build_app(stream, pipeline, instance, session),
-                            host=host,
-                            port=port, log_level="warning", access_log=False)
+                            host=host, port=port, log_level="warning",
+                            access_log=False, lifespan="off")
+    server = uvicorn.Server(config)
+    # uvicorn captures SIGTERM/SIGINT while it serves and hands them back when
+    # it returns; either way the collector's own shutdown (collector/main.py)
+    # runs: a signal ends this task or sets `stop`, and both lead there.
     log.info("event stream on ws://%s:%d/events", host, port)
-    await uvicorn.Server(config).serve()
+    serving = asyncio.create_task(_serve_or_report(server, host, port))
+    if stop is None:
+        await serving
+        return
+    await asyncio.wait([serving, asyncio.create_task(stop.wait())],
+                       return_when=asyncio.FIRST_COMPLETED)
+    server.should_exit = True
+    await serving
+
+
+async def _serve_or_report(server, host: str, port: int) -> None:
+    """Serve; if the stream cannot be served, say so and carry on.
+
+    The event stream is a picture of acquisition, not part of it. When the port
+    was already taken -- a second collector on the same host -- uvicorn exited
+    the process (SystemExit 3), and a collector whose only fault was a busy
+    display port stopped acquiring. Found by the Stage 11 test on 23 September.
+    """
+    try:
+        await server.serve()
+    except (SystemExit, OSError) as exc:
+        log.error("event stream NOT served on %s:%d (%s); acquisition continues "
+                  "without it", host, port, exc)

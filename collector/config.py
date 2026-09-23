@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SOURCES_FILE = Path(__file__).parent.parent / "config" / "sources.json"
+DEFAULT_BUFFER = "buffer/collector.sqlite"
 
 
 def source_settings(application_uri: str, path: Path = SOURCES_FILE) -> dict:
@@ -42,7 +43,7 @@ def source_settings(application_uri: str, path: Path = SOURCES_FILE) -> dict:
 class CollectorConfig:
     endpoint: str = "opc.tcp://127.0.0.1:4840/orianode/crpms/"
     dsn: str = "postgresql://crpms:crpms@localhost:5432/crpms"
-    buffer_path: str = "buffer/collector.sqlite"
+    buffer_path: str = "buffer/collector.sqlite"   # DEFAULT_BUFFER
 
     # Bounded, as the build plan requires. When full, the oldest buffered
     # samples are discarded -- a ring, as PI's buffering behaves. The loss is
@@ -69,15 +70,18 @@ class CollectorConfig:
 
         Two collectors sharing one SQLite buffer would corrupt each other's
         store-and-forward: one would drain rows the other was still holding, and
-        the loss would appear as a gap nobody could explain.
+        the loss would appear as a gap nobody could explain. So the DEFAULT path
+        gets the instance name added for any instance but the primary. A path
+        given explicitly is used as given (or with `{instance}` filled in) --
+        appending to it as well produced names nobody asked for, which the
+        Stage 11 test's clean-up then failed to find.
         """
         if "{instance}" in self.buffer_path:
             return self.buffer_path.format(instance=self.instance)
-        if self.instance == "primary":
+        if self.instance == "primary" or self.buffer_path != DEFAULT_BUFFER:
             return self.buffer_path
         stem, _, suffix = self.buffer_path.rpartition(".")
-        return f"{stem}-{self.instance}.{suffix}" if stem else \
-            f"{self.buffer_path}-{self.instance}"
+        return f"{stem}-{self.instance}.{suffix}"
 
     @classmethod
     def from_env(cls) -> "CollectorConfig":

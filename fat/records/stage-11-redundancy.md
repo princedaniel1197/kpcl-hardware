@@ -100,6 +100,58 @@ sixteen tags, eight measurements per instance. Without the instance in the name
 the two collectors would overwrite each other's account of themselves, and the
 health trend would be the average of two different stories.
 
+## Addendum — 23 September 2026: re-run with a check that can fail
+
+**The "zero missing samples" check above did not check for missing samples.**
+It looked for gaps in coverage longer than each tag's heartbeat, which would
+have passed with most samples missing so long as some arrived each minute. It
+now takes every value the simulator published across the transition — its own
+ledger of writes a subscription must report (`sim/ledger.py`) — and looks for
+each in the archive by exact source timestamp. The kill is also timed from the
+simulator's own start-up length; the run above assumed 180 s against a 90 s
+start-up, and its milestone markers were misplaced.
+
+The first run with the new check **FAILED**: 1,369 of 1,879 published samples
+missing. Both collectors had tried to serve their event stream on port 8090;
+the second's bind failed, and — through a change made earlier the same day —
+the collector treated its event stream ending as a reason to stop. The
+secondary was dead before the primary was killed. The old heartbeat check
+reported no gaps on that run. Fixed: the event stream failing no longer stops
+acquisition (it is logged and acquisition continues), and the test gives each
+instance its own port.
+
+Re-run, 23 September:
+
+```
+  instance         pid  alive  leader   samples  link
+  primary        26361  True   True        309  True
+  secondary      26364  True   False       307  True
+
+  killing the PRIMARY at 04:03:46 UTC (unit in PRESSURE_RAISE)
+
+  primary        26361  False  False      1156
+  secondary      26364  True   True       3101
+
+  U1_MW          published  77  missing 0      U1_MS_TEMP   published 193  missing 0
+  U1_TURB_SPEED  published 112  missing 0      ... 14 tags
+  published across the transition: 1,883; missing from the archive: 0
+
+  start 04:03:18  end 04:04:33  duration 1m 15.5s  (UTC)
+    boiler_lightup             2.0s
+    steam_admission           27.5s
+    -- primary killed         28.4s
+    turbine_rolling           39.0s
+    rated_speed               52.5s
+    synchronisation           55.0s
+    full_load              1m 15.5s
+
+STAGE 11: PASS — 9 of 9 checks
+```
+
+"Zero duplicates despite two writers" is no longer counted as a check: the
+primary key makes it true by construction, so the test now shows it and says so
+rather than scoring it.
+
 ## Signature
 
 | Role | Name | Date |

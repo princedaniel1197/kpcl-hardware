@@ -120,6 +120,27 @@ in their words, and whether they needed prompting.
 
 If they cannot describe it, the display is wrong, not the viewer.
 
+## Addendum — 23 September 2026
+
+Three things this record describes were not true of the code, and are now:
+
+- **"Every particle is an event."** The code animated every received value to
+  the end of the pipeline on a timer and reacted only to `value_buffered`. Dots
+  now move only when the collector reports `value_forwarded`, `value_buffered`
+  or the drain.
+- **The mimic showed Bad values as zero in its graphics**: a Bad speed read
+  "0 rpm", a Bad breaker drew OPEN, a Bad load drew an empty bar. Unknown is now
+  drawn as unknown.
+- **The trend's `×` was drawn at y = 0**, which is a picture of a zero, and its
+  categorical axis hid a stretch with no data. Bad samples are now a vertical
+  line at their instant, on a real time axis.
+
+Also: every API call needs a token, so the display opens on a sign-in; the KPI
+strip reads values the engine service computes continuously (it showed
+twelve-hour-old values before); and of ISA-101's four display levels, two are
+built (§469). The criterion — a colleague describing an outage unaided — has
+still not been attempted.
+
 ## Signature
 
 | Role | Name | Date |

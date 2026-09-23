@@ -34,8 +34,9 @@ self-referencing — so a level can be inserted without a schema change.
 ### Tag names
 
 ```
-<unit>_<measurement>          U1_MS_TEMP, U2_BEARING_VIB
-COLLECTOR_<measurement>       COLLECTOR_BUFFER_DEPTH
+<unit>_<measurement>                    U1_MS_TEMP, U2_BEARING_VIB
+COLLECTOR_<INSTANCE>_<measurement>      COLLECTOR_PRIMARY_BUFFER_DEPTH
+RIG_<measurement>                       RIG_HUB_TEMP
 ```
 
 Uppercase, underscore-separated, unit prefix first. The prefix is what makes a
@@ -75,8 +76,15 @@ Adding Unit 2 is one object in `config/asset_model.json`:
 ```json
 {"template": "ThermalUnit210", "asset_code": "KPCL-RTPS-U2",
  "name": "RTPS Unit 2", "parent_code": "KPCL-RTPS",
- "context": {"station": "RTPS", "unit": "U2"}}
+ "context": {"station": "RTPS", "unit": "U2", "source_path": "Unit2"}}
 ```
+
+`source_path` says where the unit's tags live in the source's address space.
+Without it the tags have no source path and the collector refuses them, loudly,
+rather than guessing: until 23 September a column default guessed `Unit1`, and
+Unit 2's fourteen tags were filed there. (The simulator models one unit, so
+Unit 2's tags are counted as unresolved and its KPIs are Bad, naming inputs with
+no value — which is the truth about a unit with no source.)
 
 ```bash
 make seed-assets
@@ -88,8 +96,8 @@ attribute templates. The last part is what makes the rule true rather than
 decorative: if instantiating a unit left its tags to be written by hand, adding
 a unit would still be a manual remapping job wearing a template's clothes.
 
-Every element and tag created is written to `audit_log` with actor and reason
-(§433).
+Every element and tag created, and every tag mapped to an element, is written to
+`audit_log` with actor and reason (§433).
 
 ## The query an asset framework exists for
 
@@ -139,9 +147,12 @@ Severity is assigned on meaning, not convenience:
 **A server-side deadband hid every quality change.** asyncua 2.0.1's server ANDs
 the data-change trigger with the deadband test, so a status change with the
 value unchanged is never sent. Forcing a tag Bad through a deadband subscription
-produced zero Bad notifications. The collector therefore applies **no
-server-side deadband**; the cost is 2.2× the notifications from the source
-(10.0/s → 22.2/s over 14 tags), measured rather than assumed (§317).
+produced zero Bad notifications. For that server the collector applies **no
+deadband at the source** — a per-server setting since 23 September
+(`config/sources.json`), on by default for any other server. The cost, measured
+rather than assumed (§317): 2.2× the notifications during a start-up (10.0/s →
+22.2/s over 14 tags, 22 September), 3.2× at steady load (6.8/s → 22.0/s, 23
+September).
 
 **A stuck transmitter produces silence, not repetition.** A subscription reports
 on change, so with subscription alone "frozen" and "stale" are the same
@@ -151,6 +162,13 @@ therefore performs a periodic **max-time read** of any tag that has gone quiet.
 It is a read, the session stays read-only, and the returned DataValue carries
 the server's own SourceTimestamp; nothing is re-stamped.
 
+### Configuration changes made to force a condition are audited
+
+`make quality-demo` narrows an EURange and tightens a tolerance to force two of
+the conditions. It does so through `archive/audit.py`, like any configuration
+change, and restores in a `finally`. The first version used direct UPDATEs, and
+the 1,251 range flags it left behind had nothing in `audit_log` to explain them.
+
 ### The cross-tag pair
 
 Feedwater flow against gross generation, ~3.19 t/h per MW, **gated on load**.
@@ -159,3 +177,30 @@ does not have. The rule is gated because the relationship holds in a regime, not
 always: during a cold start-up the boiler is filled with the breaker open, and
 an ungated rule would fire through every start-up. A check that cries wolf
 through every normal evolution gets switched off.
+
+## The engine service
+
+```bash
+make engine        # python -m engine
+```
+
+Nothing above computes anything on its own. Until 23 September KPIs, quality
+verdicts and event frames were produced only while a demonstration script ran,
+so the dashboard showed whatever the last one had left. `engine/service.py`
+runs them continuously:
+
+| | How often | Over |
+|---|---|---|
+| every current KPI definition | its own `calculation_freq_ms` | every element it applies to |
+| every quality rule | every 10 s | every acquired tag, last 5 minutes |
+| event-frame detection | every 30 s | the last template duration on the first pass, then incrementally; idempotent on (element, template, start) |
+
+**Which elements a KPI or an event template applies to is derived** from the
+asset model: the lowest elements whose subtree holds every attribute it needs.
+Heat rate needs CoalFlow (on the boiler) and GrossGeneration (on the unit), so it
+applies to each Unit; the Station holds both only through a Unit. Adding a unit
+is still configuration.
+
+When the archive is unreachable the engine waits and resumes. It computes KPIs
+for now and does not go back to compute them for the period the archive was down
+— recomputing history from replayed data is a deliberate act, not a side effect.

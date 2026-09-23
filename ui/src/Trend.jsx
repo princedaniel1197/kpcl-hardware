@@ -7,10 +7,19 @@
 // difference between a chart that tells the truth and one that quietly
 // invents a straight line across a sensor failure.
 //
-// Bad points are also marked, so a break is distinguishable from "no data yet".
+// Bad points are also marked, so a break is distinguishable from "no data yet"
+// -- with a vertical line at the instant, never with a mark at some y value:
+// an earlier version put the mark at y = 0 and stretched the axis to include
+// zero, which is a picture of a zero reading.
+//
+// The time axis is TIME, not a list of labels. With a categorical axis the
+// points are spaced evenly whatever the gap between them, so a minute with no
+// data at all -- the archive unreachable -- vanished from the picture. On a
+// time axis it is blank space at the right-hand edge, and it fills in from the
+// left as the buffer drains.
 
 import { useEffect, useMemo, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer,
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer,
          Tooltip, XAxis, YAxis } from 'recharts'
 import { getTrend } from './api'
 import { isa, mono, sans } from './theme'
@@ -18,13 +27,14 @@ import { isa, mono, sans } from './theme'
 export default function Trend({ tag, minutes = 10, height = 220 }) {
   const [points, setPoints] = useState([])
   const [error, setError] = useState(null)
+  const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     let live = true
     const load = async () => {
       try {
         const data = await getTrend(tag, minutes)
-        if (live) { setPoints(data.points); setError(null) }
+        if (live) { setPoints(data.points); setError(null); setNow(Date.now()) }
       } catch (e) { if (live) setError(String(e)) }
     }
     load()
@@ -34,7 +44,6 @@ export default function Trend({ tag, minutes = 10, height = 220 }) {
 
   const series = useMemo(() => points.map((p) => ({
     t: new Date(p.source_ts).getTime(),
-    label: new Date(p.source_ts).toLocaleTimeString(),
     value: p.value,                       // null when not Good: left as null
     quality: p.quality_class,
   })), [points])
@@ -57,12 +66,16 @@ export default function Trend({ tag, minutes = 10, height = 220 }) {
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={series} margin={{ top: 6, right: 12, bottom: 4, left: 0 }}>
           <CartesianGrid stroke={isa.line} strokeDasharray="2 3" />
-          <XAxis dataKey="label" tick={{ fontSize: 9, fill: isa.textDim }}
+          <XAxis dataKey="t" type="number" scale="time"
+                 domain={[now - minutes * 60000, now]}
+                 tickFormatter={(t) => new Date(t).toLocaleTimeString()}
+                 tick={{ fontSize: 9, fill: isa.textDim }}
                  minTickGap={60} stroke={isa.line} />
           <YAxis tick={{ fontSize: 9, fill: isa.textDim }} width={54}
                  stroke={isa.line} domain={['auto', 'auto']} />
           <Tooltip contentStyle={{ fontSize: 11, fontFamily: mono,
                                    background: isa.panel, border: `1px solid ${isa.line}` }}
+                   labelFormatter={(t) => new Date(t).toLocaleTimeString()}
                    formatter={(value, _n, p) => [
                      value === null ? 'no value' : value,
                      p.payload.quality]} />
@@ -71,17 +84,16 @@ export default function Trend({ tag, minutes = 10, height = 220 }) {
                 strokeWidth={1.4} dot={false} isAnimationActive={false}
                 connectNulls={false} />
           {bad.map((p, i) => (
-            <ReferenceDot key={`b${i}`} x={p.label} y={0} r={0}
-                          ifOverflow="extendDomain"
-                          label={{ value: '×', position: 'insideBottom',
-                                   fill: isa.bad, fontSize: 14 }} />
+            <ReferenceLine key={`b${i}`} x={p.t} stroke={isa.bad}
+                           strokeDasharray="2 2" ifOverflow="discard" />
           ))}
         </LineChart>
       </ResponsiveContainer>
       {bad.length > 0 && (
         <div style={{ fontSize: 10, color: isa.bad, fontFamily: sans }}>
-          × marks a sample that arrived Bad. The line breaks there because the
-          sample carries no value — it is not zero, and it is not interpolated.
+          A red dashed line marks a sample that arrived Bad. The trend breaks
+          there because the sample carries no value — it is not zero, and it is
+          not interpolated.
         </div>
       )}
     </div>

@@ -115,7 +115,7 @@ variable is created non-writable, and a client attempting `write_value` gets a
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest sim/ -q      # 13 tests
+.venv/bin/python -m pytest sim/ -q
 ```
 
 They drive a real OPC UA server over a real socket and call the control API over

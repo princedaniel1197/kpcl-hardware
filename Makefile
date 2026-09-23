@@ -39,7 +39,8 @@ POSTGRES_DB   ?= crpms
 POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
-.PHONY: help doctor env up down logs psql wait-db clean install venv sim collector api ui test \
+.PHONY: help doctor env up down logs psql wait-db clean install venv sim collector engine api ui test \
+        token firmware itp intrusion-demo deadband-evidence \
         migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo rig-stub redundancy-demo outage-test compression-report \
         fat backup restore backup-install backup-uninstall capacity alerts alerts-watch seed-alerts export access \
         scraper scraper-once scraper-migrate scraper-install scraper-uninstall \
@@ -58,7 +59,9 @@ help:
 	@echo ""
 	@echo "  sim         run the OPC UA DCS simulator        (Stage 1)"
 	@echo "  collector   run the acquisition collector       (Stage 3)"
+	@echo "  engine      run KPIs, quality rules, event frames (Stages 6-8)"
 	@echo "  api         run the FastAPI service             (Stage 12)"
+	@echo "  token       create a read-only API token for the UI (§509)"
 	@echo "  ui          run the React visualisation         (Stage 12)"
 	@echo "  test        run the test suite"
 	@echo ""
@@ -76,9 +79,12 @@ help:
 	@echo "  omf-receiver       run the OMF receiver                (Stage 9)"
 	@echo "  omf-demo           Stage 9 acceptance test (OMF, switchable endpoint)"
 	@echo "  rig-stub           bench rig stand-in, NOT the rig      (Stage 10)"
+	@echo "  firmware           compile both ESP32 builds (TCP, RTU) (Stage 10)"
 	@echo "  redundancy-demo    Stage 11 acceptance test (kill the primary)"
 	@echo ""
 	@echo "  fat                run the automated FAT, write a report (Stage 14)"
+	@echo "  itp                regenerate fat/ITP.md from fat/plan.py"
+	@echo "  intrusion-demo     show T-12 failing a polling client"
 	@echo "  backup / restore   archive backup and clean-environment restore"
 	@echo "  backup-install     hourly backup under launchd (RPO 1 hour)"
 	@echo "  capacity           central capacity report          (§344)"
@@ -86,7 +92,8 @@ help:
 	@echo "  export             machine-readable export          (§503)"
 	@echo "  access             list principals and roles        (§509)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"
-	@echo "  compression-report Stage 4 ratios and reconstruction error"
+	@echo "  compression-report Stage 4: compression through the live pipeline"
+	@echo "  deadband-evidence  source deadband on vs off, measured"
 	@echo ""
 	@echo "  scraper-migrate    create the SLDC recorder tables"
 	@echo "  scraper-once       one poll, then exit"
@@ -169,20 +176,26 @@ install: venv
 	$(VPY) -m pip install -e ".[dev]"
 
 # ---------------------------------------------------------------------------
-# Components. Each is built by the stage named in its guard.
+# Components
 # ---------------------------------------------------------------------------
 
 sim:
-	@test -f sim/server.py || { echo "sim/server.py does not exist yet — that is Stage 1."; exit 1; }
-	$(VPY) -m sim
+	$(VPY) -m sim $(SIM_ARGS)
 
 collector:
-	@test -f collector/main.py || { echo "collector/main.py does not exist yet — that is Stage 3."; exit 1; }
-	$(VPY) -m collector.main
+	$(VPY) -m collector
+
+# KPIs, quality rules and event frames, continuously (engine/service.py).
+engine:
+	$(VPY) -m engine
 
 api:
-	@test -f api/main.py || { echo "api/main.py does not exist yet — that is Stage 12."; exit 1; }
 	$(VENV)/bin/uvicorn api.main:app --host $${API_HOST:-127.0.0.1} --port $${API_PORT:-8000} --reload
+
+# Every API call needs a token (§509). This makes one for the visualisation,
+# read-only, and prints it once.
+token:
+	@$(VPY) -m ops.access create $${NAME:-viewer.$$USER} $${ROLE:-corporate}
 
 ui:
 	@test -d ui/node_modules || { echo "installing ui dependencies ..."; cd ui && npm install; }
@@ -212,14 +225,21 @@ loadtest:
 # Collector (Stage 3)
 # ---------------------------------------------------------------------------
 
-# Stand-in for the bench rig, for testing the bridge without the hardware.
 redundancy-demo:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m collector.redundancy_demo
 
+# Stand-in for the bench rig, for testing the bridge without the hardware.
 rig-stub:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m firmware.rig_stub
+
+# Compile both firmware builds (TCP and RTU). Needs PlatformIO: `pip install
+# platformio` into any environment, or set PIO. Compiling is not flashing.
+PIO ?= $(shell command -v pio 2>/dev/null || echo $$HOME/.pio-venv/bin/pio)
+firmware:
+	@test -f firmware/src/secrets.h || cp firmware/src/secrets.h.example firmware/src/secrets.h
+	cd firmware && $(PIO) run -e tcp -e rtu
 
 omf-receiver:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
@@ -265,7 +285,12 @@ compression-report:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m collector.compression_report
 
-# The Stage 3 acceptance test. STOPS THE DATABASE CONTAINER for three minutes.
+# The measurement behind config/sources.json: source deadband on vs off.
+deadband-evidence:
+	@$(VPY) -m collector.deadband_evidence
+
+# The Stage 3 acceptance test. STOPS THE DATABASE CONTAINER for three minutes,
+# and must run with no other collector running.
 outage-test:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m collector.outage_test
@@ -281,6 +306,13 @@ outage-test:
 fat:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
 	$(VPY) -m fat.runner
+
+itp:
+	@$(VPY) -m fat.generate_itp
+
+# Shows T-12 can fail: the same measurement against a polling client.
+intrusion-demo:
+	@$(VPY) -m fat.intrusion_demo
 
 backup:
 	./ops/backup.sh

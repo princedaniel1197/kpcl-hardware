@@ -155,6 +155,25 @@ twice in a row to prove it.
 Worth recording because the first commit of this stage claimed "223 passed" on
 the strength of a single isolated run. The claim was wrong when it was made.
 
+## Addendum — 23 September 2026
+
+- **§509: "every call carries a principal" was not true of the API.** The
+  access library existed and nothing called it; every route was
+  unauthenticated. It is now enforced on every route and the WebSocket, with
+  the station scope applied (`api/auth.py`), and T-18 tests it against the live
+  API.
+- **§433: not every change was audited, and the log could be edited.** The
+  Stage 6 demonstration changed an EURange without an audit row; the quality
+  and alert seeders recorded "old value NULL" when overwriting; tag-to-element
+  mapping was unaudited; the access-control test fixture deleted audit rows.
+  All fixed; `audit_log` is append-only in the database (migration 015).
+- **Backup:** a dump that failed half way was left under its final name and
+  counted towards retention; a failed restore exited 0. Both fixed. Re-verified
+  on 23 September into a clean container: **10,921,597 of 10,921,597 samples**
+  and 336 of 336 audit rows; backup 12 s (167.9 MB), RTO 36 s.
+- The export now carries each sample's collector run and sequence number, and
+  the source configuration.
+
 ## Signature
 
 | Role | Name | Date |

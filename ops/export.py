@@ -51,8 +51,11 @@ def export(conn: psycopg.Connection, destination: Path, *,
     parts: dict[str, str] = {}
 
     # --- samples, with quality on every row --------------------------------
+    # server_ts is empty where no server stamped the value; collector_run and
+    # seq say which collector run archived the row and its place in that run's
+    # numbering, so a recipient can reconcile loss without this system.
     sql = ("SELECT t.name AS tag, s.source_ts, s.server_ts, s.value, s.quality,"
-           " quality_class(s.quality) AS quality_class"
+           " quality_class(s.quality) AS quality_class, s.collector_run, s.seq"
            " FROM sample s JOIN tag t ON t.id = s.tag_id"
            " WHERE s.source_ts BETWEEN %s AND %s")
     params: list = [start, end]
@@ -80,7 +83,8 @@ def export(conn: psycopg.Connection, destination: Path, *,
     for name, sql in (
         ("tags", "SELECT id, name, description, engineering_unit, range_low,"
                  " range_high, source_system, source_path, scan_rate_ms,"
-                 " exc_dev, comp_dev, max_time_ms, element_id FROM tag ORDER BY name"),
+                 " exc_dev, comp_dev, max_time_ms, compress, element_id"
+                 " FROM tag ORDER BY name"),
         ("elements", "SELECT id, asset_code, name, level, parent_id, template_id,"
                      " context FROM element ORDER BY asset_code"),
         ("element_templates", "SELECT id, name, description, parent_template_id,"
@@ -102,6 +106,9 @@ def export(conn: psycopg.Connection, destination: Path, *,
     ):
         columns, rows = _rows(conn, sql)
         config[name] = [dict(zip(columns, row)) for row in rows]
+    sources = Path(__file__).parent.parent / "config" / "sources.json"
+    if sources.exists():
+        config["sources"] = json.loads(sources.read_text())
     parts["configuration.json"] = json.dumps(config, indent=2, default=str)
 
     # --- event frames --------------------------------------------------------

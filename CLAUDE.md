@@ -153,18 +153,29 @@ The second list is what makes the first list believable.
 All fourteen stages built. Twelve have passed their acceptance test; two are
 outstanding and both need a person rather than more code.
 
+A code review on 23 September 2026 found claims the code did not back and three
+FAT tests that could not fail. Everything it raised has been fixed or answered,
+with measurements, in `fat/records/review-2026-09-23.md`; affected stage records
+carry dated corrections; Stages 3 and 11 were re-run and passed; the FAT was
+re-run on a clean tree.
+
 | Stage | State |
 |---|---|
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
-| 14 report | `fat/reports/FAT-20260922T194953Z.md` |
-| 10 hardware rig | built and verified against a stand-in; **the acceptance test needs the physical rig**, which has not been assembled, and the firmware has never been compiled |
+| 10 hardware rig | firmware **compiles** (TCP and RTU builds, 23 Sep); verified against a stand-in; **the acceptance test needs the physical rig**, which has not been assembled, and nothing has been flashed |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
-| 14 FAT | plan, procedure and runner built; **12 of 12 automated tests pass**; 5 hold and witness points await signature |
+| 14 FAT | plan, procedure and runner built; every automated test states what would make it fail; hold and witness points await signature |
+
+Running the system now takes `make sim`, `make collector`, `make engine` (KPIs,
+quality rules and event frames — nothing computed them continuously before 23
+Sep), `make api` and `make ui`; the UI needs a token from `make token`.
 
 Outstanding for a person:
 
-1. Build the bench rig (`firmware/REGISTER_MAP.md`), flash the firmware, and
-   unplug the temperature probe. Steps in `fat/records/stage-10-hardware-rig.md`.
+1. Build the bench rig (`firmware/REGISTER_MAP.md`), flash the firmware, set the
+   two DS18B20 ROM addresses in `firmware/src/rig_config.h` (printed on the
+   serial monitor), and unplug the temperature probe. Steps in
+   `fat/records/stage-10-hardware-rig.md`.
 2. Sit someone in front of the visualisation during an outage and record what
    they say. Steps in `fat/records/stage-12-visualisation.md`.
 3. Sign the hold and witness points in the FAT report.

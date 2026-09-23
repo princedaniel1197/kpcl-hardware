@@ -138,6 +138,22 @@ Fixed to diff the fields and write one row per field that genuinely changed:
 
 `pytest engine/test_kpi.py -q` → **21 passed**. Full suite **149 passed**.
 
+## Addendum — 23 September 2026
+
+- **StatusCodes.** A Bad input now gives `BadAggregateInvalidInputs` ("could not
+  be derived due to invalid data inputs"); it was `BadDependentValueChanged`,
+  which is about writes to a device. An Uncertain input gives
+  `UncertainSubNormal`; it was `UncertainSubstituteValue`, "a value that was
+  manually overwritten" — the opposite of what the engine does. A result outside
+  its validity range gives `UncertainEngineeringUnitsExceeded`; it was a
+  sensor-limit code. Results already stored keep the code they were computed
+  with, beside the definition version that produced them.
+- **Nothing computed KPIs** except this demonstration and the Stage 10 check;
+  `kpi_value` held 11 rows and the dashboard showed values twelve hours old.
+  `python -m engine` now computes every current definition at its own
+  frequency for every element it applies to — derived from the asset model: the
+  lowest elements whose subtree holds every input attribute.
+
 ## Signature
 
 | Role | Name | Date |

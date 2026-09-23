@@ -54,11 +54,18 @@ def buffer_for(instance: str) -> Path:
     return ROOT / "buffer" / f"redundancy-{instance}.sqlite"
 
 
+EVENT_PORTS = {"primary": "8090", "secondary": "8091"}
+
+
 def start_collector(instance: str) -> subprocess.Popen:
+    # Each on its own event-stream port: two processes cannot both listen on
+    # 8090. (Before the collector learned to carry on without its event stream,
+    # the second one to start exited on the bind failure.)
     return subprocess.Popen(
         [str(ROOT / ".venv/bin/python"), "-m", "collector",
          "--instance", instance, "--buffer", str(buffer_for(instance))],
-        cwd=str(ROOT), env={**os.environ, "COLLECTOR_INSTANCE": instance},
+        cwd=str(ROOT), env={**os.environ, "COLLECTOR_INSTANCE": instance,
+                            "COLLECTOR_EVENT_PORT": EVENT_PORTS[instance]},
         stdout=open(f"/tmp/collector-{instance}.log", "w"),
         stderr=subprocess.STDOUT)
 
@@ -135,7 +142,9 @@ def coverage_gaps(tag: str, since: dt.datetime, until: dt.datetime,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--startup-seconds", type=float, default=180.0)
+    ap.add_argument("--startup-seconds", type=float, default=None,
+                    help="how long the simulator's start-up takes; read from "
+                         "the simulator if not given")
     args = ap.parse_args()
     checks: dict[str, bool] = {}
     processes: dict[str, subprocess.Popen] = {}
@@ -146,9 +155,14 @@ def main() -> int:
         print("STAGE 11 — redundancy: kill the primary during a start-up")
         print("=" * 78)
 
-        if sim_status() is None:
+        status = sim_status()
+        if status is None:
             print("\n  the simulator is not running; start it first")
             return 1
+        # Timed from the simulator's own start-up length. The first version took
+        # a default of 180 s while the simulator ran a 90 s start-up, so the
+        # "mid start-up" kill landed wherever that happened to put it.
+        startup_s = args.startup_seconds or float(status["startup_seconds"])
 
         was_running = subprocess.run(
             ["pgrep", "-f", "Python -m collector$"], capture_output=True,
@@ -181,23 +195,23 @@ def main() -> int:
         checks["the leader is the primary"] = rows.get("primary", (None,)*4)[3]
 
         # --- restart the start-up and kill the primary mid-way ------------
-        print(f"\n  restarting the start-up sequence ({args.startup_seconds:.0f}s)")
+        print(f"\n  restarting the start-up sequence ({startup_s:.0f}s)")
         urllib.request.urlopen(urllib.request.Request(
             CONTROL + "/restart", method="POST"), timeout=5).read()
         began = dt.datetime.now(dt.timezone.utc)
 
         # Kill the primary partway through, while the unit is still coming up.
-        time.sleep(args.startup_seconds * 0.35)
+        time.sleep(startup_s * 0.35)
         kill_instant = dt.datetime.now(dt.timezone.utc)
         phase = (sim_status() or {}).get("phase")
-        print(f"\n  killing the PRIMARY at {kill_instant.strftime('%H:%M:%S')} "
+        print(f"\n  killing the PRIMARY at {kill_instant.strftime('%H:%M:%S')} UTC "
               f"(unit in {phase})")
         processes["primary"].send_signal(signal.SIGKILL)
         processes["primary"].wait(timeout=10)
         print("     primary is gone")
 
         # --- let the start-up finish on the secondary alone ---------------
-        deadline = time.monotonic() + args.startup_seconds * 1.5
+        deadline = time.monotonic() + startup_s * 1.5
         while time.monotonic() < deadline:
             if (sim_status() or {}).get("phase") == "STEADY":
                 break
@@ -271,17 +285,20 @@ def main() -> int:
                 events.store(conn, f)
 
         expected = {m.name for m in template.milestones}
+        spanning = [f for f in closed if f.start_ts < kill_instant < f.end_ts]
         if closed:
-            frame = closed[-1]
+            frame = spanning[-1] if spanning else closed[-1]
             print(f"  start {frame.start_ts.strftime('%H:%M:%S')}  "
                   f"end {frame.end_ts.strftime('%H:%M:%S')}  "
-                  f"duration {events._hms(frame.duration_s)}")
+                  f"duration {events._hms(frame.duration_s)}  (UTC)")
+            killed_shown = False
             for m in frame.milestones:
+                if not killed_shown and m.ts > kill_instant:
+                    print(f"    {'-- primary killed':<18} "
+                          f"{events._hms((kill_instant - frame.start_ts).total_seconds()):>12}")
+                    killed_shown = True
                 offset = (m.ts - frame.start_ts).total_seconds()
-                marker = "  <-- primary killed here" if (
-                    m.ts > kill_instant and
-                    (m.ts - kill_instant).total_seconds() < 60) else ""
-                print(f"    {m.name:<18} {events._hms(offset):>12}{marker}")
+                print(f"    {m.name:<18} {events._hms(offset):>12}")
             checks["the start-up frame was captured"] = True
             checks["every milestone is present"] = {
                 m.name for m in frame.milestones} == expected

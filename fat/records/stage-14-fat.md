@@ -109,6 +109,28 @@ T-16 cannot be automated and should not be. The criterion is a human judgement,
 and the people who built the display are the last people whose opinion of its
 legibility is worth anything.
 
+## Correction and addendum — 23 September 2026
+
+**The explanation of the −3.278 s latency above is wrong.** The container's
+clock does not lag the host's. `now()` in PostgreSQL is the start time of the
+current *transaction*, and the runner held one connection with one transaction
+open for the whole run, so "now" was minutes stale — and the "offset of up to
+1.8 s, drifting" was the age of that transaction. Measured with
+`clock_timestamp()` on 23 September, the two clocks agree to about a
+millisecond (median −0.64 ms over 40 samples). The fix made at the time — host
+clock on both sides — was right; the reason given was not, and the paragraph
+drawing a lesson about cross-site time synchronisation from it drew it from a
+measurement error. The runner now uses autocommit and `clock_timestamp()`.
+
+The review of 23 September (`review-2026-09-23.md`) found that three automated
+tests could not fail — T-04, T-12 and the gap count behind T-08 — and that
+T-18–T-20 were not run by the FAT at all. Every automated test now states what
+would make it fail; the criteria of T-04, T-05, T-10, T-12 and T-13 changed;
+T-18–T-20 run against the live system; and T-12 is shown failing an aggressive
+polling client (`make intrusion-demo`: 3.37 % of a core per tag against a 0.5 %
+budget). The report `FAT-20260922T194953Z.md` was produced from a dirty tree;
+the runner now refuses one.
+
 ## Signature
 
 | Role | Name | Date |

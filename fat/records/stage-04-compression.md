@@ -115,6 +115,29 @@ values reconstructible from their neighbours to within CompDev, which the
 reconstruction test proves. This module is not wired into the live pipeline by
 default; Stage 3's zero-loss result was measured with it off.
 
+## Addendum — 23 September 2026
+
+**"Not wired into the live pipeline by default" was a disclosure in a docstring
+while the README table said "passed".** Compression now runs in the live
+pipeline for any tag with `compress = true`; every tag is `false` as shipped, so
+the archive stays uncompressed and Stage 3's zero-loss claim stays a claim
+about every sample. max_time is now required with CompDev, in the code and in
+the schema.
+
+Measured through the collector's own Pipeline against the simulator
+(`make compression-report`, 120 s at steady load, 23 September):
+
+```
+U1_MS_TEMP      241 raw ->  7 archived   34.4:1   worst 2.3851 <= 2.400
+U1_BEARING_VIB  241 raw -> 206 archived   1.2:1   worst 0.0487 <= 0.050
+tags within CompDev: 15/15;  overall 3,112 raw -> 461 archived, 6.8:1
+```
+
+The claim "textbook swinging door is out by 1.6–1.9 × CompDev" is now a test:
+`test_compression.py` carries an independent textbook implementation and shows
+it at 1.59–1.68 × CompDev on its sine at four CompDev values, against ≤ 1.0 for
+this implementation.
+
 ## Signature
 
 | Role | Name | Date |

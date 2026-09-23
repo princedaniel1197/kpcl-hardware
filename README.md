@@ -28,14 +28,21 @@ is finished when its test has been run and its result recorded in
 | 11 Redundancy | **passed** | [record](fat/records/stage-11-redundancy.md) |
 | 12 The visualisation | **built** — its criterion is a human judgement | [record](fat/records/stage-12-visualisation.md) |
 | 13 Remaining requirements | **passed** | [record](fat/records/stage-13-remaining-requirements.md) |
-| 14 The FAT | **built** — [plan](fat/ITP.md), [procedure](fat/procedure.md), reports in `fat/reports/` | |
+| 14 The FAT | **built** — [plan](fat/ITP.md), [procedure](fat/procedure.md), reports in `fat/reports/` | [record](fat/records/stage-14-fat.md) |
+
+**A code review on 23 September 2026** found claims the code did not back and
+three FAT tests that could not fail. What it found, what was changed and what
+was measured afterwards is in
+[`fat/records/review-2026-09-23.md`](fat/records/review-2026-09-23.md); the
+stage records it affects carry dated corrections. Stages 3 and 11 were re-run
+against the changed code and passed.
 
 Two things are outstanding and both need a person, not more code:
 
-- **Stage 10** needs the ESP32 and the sensors on a bench. The firmware and the
-  bridge are written and the whole path from a failed sensor to a Bad KPI is
-  demonstrated against a stand-in, but no probe has been unplugged and the
-  firmware has never been compiled.
+- **Stage 10** needs the ESP32 and the sensors on a bench. The firmware compiles
+  (both builds) and the whole path from a failed sensor to a Bad KPI is
+  demonstrated against a stand-in, but nothing has been flashed and no probe
+  unplugged.
 - **Stage 12's** criterion is "a colleague who has not seen it can describe what
   happened". Nobody has watched it.
 
@@ -50,7 +57,9 @@ make seed-tags seed-assets seed-quality seed-kpis seed-alerts
 
 make sim             # the OPC UA DCS simulator
 make collector       # acquisition
-make api             # FastAPI on :8000
+make engine          # KPIs, quality rules and event frames, continuously
+make api             # FastAPI on :8000 — every call needs a token
+make token           # a read-only token for the UI, shown once
 make ui              # the visualisation on :5173
 ```
 
@@ -76,26 +85,32 @@ make fat                 # the automated FAT, writes a report
 | `sim/` | OPC UA server standing in for a DCS, plus the Modbus bridge |
 | `archive/` | schema, numbered migrations, OMF receiver |
 | `collector/` | acquisition, buffering, compression, OMF output |
-| `engine/` | asset model, quality rules, KPIs, event frames |
+| `engine/` | asset model, quality rules, KPIs, event frames, and the service that runs them |
 | `ops/` | access control, alerts, capacity, backup, export |
 | `firmware/` | ESP32 bench rig, and a stand-in for testing the bridge |
 | `api/`, `ui/` | FastAPI and the React visualisation |
 | `fat/` | inspection and test plan, procedure, runner, records, reports |
-| `config/` | tags, asset model, quality rules, KPIs, alert rules, event templates |
+| `config/` | tags, asset model, quality rules, KPIs, alert rules, event templates, OPC UA sources |
 | `docs/` | generated KPI dictionary, backup and restore |
 | `scraper/` | Karnataka SLDC live generation recorder |
 
 ## What it demonstrates
 
 Real industrial protocols end to end: a real OPC UA server, a real Modbus
-fieldbus, real OMF. Measurement times preserved from the source to the historian
-and into PI-compatible output. Quality carried as the numeric OPC UA StatusCode
-through every layer and into every calculation, with a KPI returning Bad and
-naming the input that caused it. An archive outage survived with zero loss and
-ordered recovery. Two-stage compression with the reconstruction bound actually
-met. An asset model where adding a unit is one line of configuration. Event
-frames compared milestone by milestone. Redundancy with no arbitration, because
-the schema makes a duplicate impossible.
+fieldbus (TCP, and RTU compiled for RS-485), real OMF. Measurement times
+preserved from the source to the historian and into PI-compatible output, and a
+missing server timestamp stored as missing. Quality carried as the numeric OPC
+UA StatusCode through every layer and into every calculation, with a KPI
+returning Bad and naming the input that caused it. An archive outage survived
+with zero loss and ordered recovery, checked against the collector's own
+ledger, the OPC UA server's message numbering and per-run sequence numbers.
+Two-stage compression with the reconstruction bound actually met, in the live
+pipeline. An asset model where adding a unit is one line of configuration.
+Event frames captured continuously and compared milestone by milestone.
+Redundancy with no arbitration, because the schema makes a duplicate
+impossible, and zero missing samples across a killed collector checked against
+the source's own record of what it published. Every API call authenticated and
+scoped by role.
 
 Each of those was measured, and the measurement is in `fat/records/` with the
 defects found on the way there.
@@ -106,7 +121,10 @@ It does not touch a real BHEL, Yokogawa, ABB or Andritz DCS. It is not running
 on a licensed AVEVA PI installation, and whether a real PI Web API endpoint
 accepts its OMF has not been tested. It is not proven at 34,700 I/O across 13
 sites — every figure was measured on one laptop, one simulated unit and a bench
-rig that has not yet been built. It says nothing about wide-area network
+rig that has not yet been built; the firmware compiles and has never run. The
+simulated source is asyncua, whose server suppresses a status change inside a
+deadband, so this demonstrator runs with no deadband at the source; how a real
+DCS behaves there is not measured. It says nothing about wide-area network
 behaviour, cross-site time synchronisation, per-station licensing, or OT
 security zoning.
 
@@ -116,6 +134,8 @@ cylinder efficiency and condenser performance need published steam tables and
 are **not implemented**, rather than approximated.
 
 The access control is not an identity system: no password policy, no lockout, no
-MFA, no SSO. The backup has no off-site copy and no encryption at rest.
+MFA, no SSO, no token expiry. The simulator's control API is unauthenticated.
+The backup has no off-site copy and no encryption at rest. KPIs are computed
+live and not recomputed for a period the archive was down.
 
 The second list is what makes the first list believable.
