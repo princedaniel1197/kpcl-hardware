@@ -21,11 +21,23 @@ from pathlib import Path
 
 import psycopg
 
+from fat import tests as fat_tests
 from fat.plan import PLAN
 from fat.tests import AUTOMATED, HOLD, WITNESS, Result
+from ops import access
 
 ROOT = Path(__file__).parent.parent
 DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms")
+
+
+def git_state() -> tuple[str, str]:
+    """The commit, and anything in the working tree that differs from it."""
+    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                            cwd=str(ROOT), capture_output=True,
+                            text=True).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=str(ROOT),
+                           capture_output=True, text=True).stdout.strip()
+    return commit, dirty
 
 
 def environment(conn) -> dict:
@@ -38,11 +50,7 @@ def environment(conn) -> dict:
         samples = cur.fetchone()[0]
         cur.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
         size = cur.fetchone()[0]
-    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                            cwd=str(ROOT), capture_output=True,
-                            text=True).stdout.strip()
-    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=str(ROOT),
-                           capture_output=True, text=True).stdout.strip()
+    commit, dirty = git_state()
     return {
         "host": platform.platform(),
         "python": sys.version.split()[0],
@@ -54,37 +62,60 @@ def environment(conn) -> dict:
     }
 
 
-def run(selected: set[str] | None = None, skip: set[str] | None = None) -> Path:
+def run(selected: set[str] | None = None, skip: set[str] | None = None,
+        allow_dirty: bool = False) -> Path:
+    # The report names the commit it tested. On a dirty tree that commit is not
+    # the code that ran, and the report would say something untrue about
+    # itself. The acceptance report of 22 September was produced that way.
+    commit, dirty = git_state()
+    if dirty and not allow_dirty:
+        raise SystemExit(
+            "the working tree has changes not in the commit, so the report "
+            f"could not say what code it tested:\n{dirty}\n"
+            "commit them, or pass --allow-dirty to produce a report marked "
+            "NOT FOR ACCEPTANCE")
+
     began = dt.datetime.now(dt.timezone.utc)
     results: dict[str, Result] = {}
 
-    with psycopg.connect(DSN) as conn:
+    with psycopg.connect(DSN, autocommit=True) as conn:
         env = environment(conn)
-        for test in PLAN:
-            if selected and test.ref not in selected:
-                continue
-            if skip and test.ref in skip:
-                continue
-            if test.kind != AUTOMATED or test.run is None:
-                continue
-            print(f"  {test.ref}  {test.title} ... ", end="", flush=True)
-            try:
-                result = test.run(conn)
-            except Exception as exc:                      # noqa: BLE001
-                result = Result(False, f"error: {exc}")
-            results[test.ref] = result
-            print("PASS" if result.passed else
-                  "NOT RUN" if result.passed is None else "FAIL")
+        # A principal for this run, least privilege (corporate: read only),
+        # revoked when the run ends. Created and revoked through the audited
+        # path like any other.
+        username = f"fat.runner.{began.strftime('%Y%m%dT%H%M%SZ')}"
+        fat_tests.API_TOKEN = access.create_principal(
+            conn, username, "corporate", actor="fat.runner")
+        try:
+            for test in PLAN:
+                if selected and test.ref not in selected:
+                    continue
+                if skip and test.ref in skip:
+                    continue
+                if test.kind != AUTOMATED or test.run is None:
+                    continue
+                print(f"  {test.ref}  {test.title} ... ", end="", flush=True)
+                try:
+                    result = test.run(conn)
+                except Exception as exc:                      # noqa: BLE001
+                    result = Result(False, f"error: {exc}")
+                results[test.ref] = result
+                print("PASS" if result.passed else
+                      "NOT RUN" if result.passed is None else "FAIL")
+        finally:
+            access.revoke(conn, username, actor="fat.runner")
+            fat_tests.API_TOKEN = None
 
     ended = dt.datetime.now(dt.timezone.utc)
-    report = render(env, results, began, ended)
+    report = render(env, results, began, ended, dirty=bool(dirty))
     out = ROOT / "fat" / "reports" / f"FAT-{began.strftime('%Y%m%dT%H%M%SZ')}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report)
     return out
 
 
-def render(env: dict, results: dict[str, Result], began, ended) -> str:
+def render(env: dict, results: dict[str, Result], began, ended,
+           dirty: bool = False) -> str:
     automated = [t for t in PLAN if t.kind == AUTOMATED and t.run is not None]
     ran = [t for t in automated if t.ref in results]
     passed = [t for t in ran if results[t.ref].passed is True]
@@ -102,6 +133,9 @@ def render(env: dict, results: dict[str, Result], began, ended) -> str:
         f"**Report generated {began.isoformat(timespec='seconds')}**, "
         f"execution took {(ended - began).total_seconds():.0f} s.",
         "",
+        *(["> **NOT FOR ACCEPTANCE.** Produced from a working tree with changes "
+            "not in the commit named below, so this report cannot say exactly "
+            "what code it tested.", ""] if dirty else []),
         "## Result",
         "",
         f"| | |", "|---|---|",
@@ -142,6 +176,7 @@ def render(env: dict, results: dict[str, Result], began, ended) -> str:
                   f"- **Condition:** {test.condition}",
                   f"- **Method:** {test.method}",
                   f"- **Criterion:** {test.criterion}",
+                  f"- **Would fail if:** {test.fails_if or 'none stated'}",
                   f"- **Actual:** {r.actual}",
                   f"- **Result:** "
                   + ("PASS" if r.passed else "NOT RUN" if r.passed is None
@@ -196,7 +231,7 @@ def render(env: dict, results: dict[str, Result], began, ended) -> str:
         "one laptop with one simulated unit and a bench rig. It says nothing "
         "about wide-area network behaviour, cross-site time synchronisation, "
         "per-station licensing, or OT security zoning. The bench rig's firmware "
-        "has never been compiled or flashed.",
+        "compiles but has never been flashed or run against real sensors.",
         "",
         "Plant physics is limited to definitional ratios. Cylinder efficiency "
         "and condenser performance require published steam tables and are not "
@@ -222,11 +257,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="fat.runner")
     ap.add_argument("--only", help="comma-separated refs, e.g. T-01,T-07")
     ap.add_argument("--skip", help="comma-separated refs to skip")
+    ap.add_argument("--allow-dirty", action="store_true",
+                    help="run on a working tree with uncommitted changes; the "
+                         "report is marked NOT FOR ACCEPTANCE")
     args = ap.parse_args()
     selected = set(args.only.split(",")) if args.only else None
     skip = set(args.skip.split(",")) if args.skip else None
     print("Running the automated FAT tests\n")
-    out = run(selected, skip)
+    out = run(selected, skip, allow_dirty=args.allow_dirty)
     print(f"\nreport written to {out}")
     return 0
 

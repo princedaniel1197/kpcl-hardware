@@ -221,9 +221,9 @@
     },
     {
       "name": "RIG_CURRENT",
-      "description": "Bench rig total load current (ACS712 5 A)",
+      "description": "Bench rig total load current, mean (ACS712 5 A, spans -5 to +5 A)",
       "engineering_unit": "A",
-      "range_low": 0.0,
+      "range_low": -5.0,
       "range_high": 5.0,
       "source_system": "opcua",
       "source_path": "BenchRig",

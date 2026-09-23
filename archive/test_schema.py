@@ -308,6 +308,24 @@ def test_a_bad_kpi_value_has_no_number_but_has_a_reason(conn):
         assert "U1_COAL_FLOW" in reason
 
 
+def test_the_audit_log_is_append_only(conn):
+    """Migration 015: an audit row, once written, cannot be edited or removed."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO audit_log (actor, entity, entity_id, field,"
+                    " old_value, new_value, reason) VALUES"
+                    " ('pd','tag','1','comp_dev','1.0','0.5','tightened') RETURNING id")
+        row_id = cur.fetchone()[0]
+        cur.execute("SAVEPOINT s")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            cur.execute("UPDATE audit_log SET new_value='0.4' WHERE id=%s", (row_id,))
+        cur.execute("ROLLBACK TO SAVEPOINT s")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            cur.execute("DELETE FROM audit_log WHERE id=%s", (row_id,))
+        cur.execute("ROLLBACK TO SAVEPOINT s")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            cur.execute("TRUNCATE audit_log")
+
+
 def test_audit_log_records_before_and_after(conn):
     with conn.cursor() as cur:
         cur.execute("INSERT INTO audit_log (actor, entity, entity_id, field,"

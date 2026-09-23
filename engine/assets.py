@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 import psycopg
 
+from archive import audit
+
 # ISA-95 levels, coarse to fine. Documented in engine/README.md (§385).
 LEVELS = ("Enterprise", "Station", "Unit", "System", "SubSystem",
           "Equipment", "Component", "Parameter")
@@ -157,6 +159,12 @@ def _ensure_tag(cur, name: str, spec: dict, actor: str) -> int:
     Creating tags here is what makes rule 7 true. If instantiating a unit left
     its tags to be written by hand, adding a unit would still be a manual
     remapping job wearing a template's clothes.
+
+    Where the tag lives in the source address space comes from the element's
+    context (`source_path`), like everything else that differs between units.
+    A unit whose context gives none gets tags with no source path, which the
+    collector refuses loudly rather than guessing -- the column default that
+    used to guess filed Unit 2's tags under Unit1.
     """
     cur.execute("SELECT id FROM tag WHERE name = %s", (name,))
     row = cur.fetchone()
@@ -164,13 +172,15 @@ def _ensure_tag(cur, name: str, spec: dict, actor: str) -> int:
         return row[0]
     cur.execute(
         "INSERT INTO tag (name, description, engineering_unit, range_low,"
-        " range_high, source_system, scan_rate_ms, exc_dev, comp_dev, max_time_ms)"
-        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        " range_high, source_system, scan_rate_ms, exc_dev, comp_dev, max_time_ms,"
+        " source_path)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (name, spec.get("description"), spec.get("engineering_unit"),
          spec.get("range_low"), spec.get("range_high"),
          spec.get("source_system") or "opcua",
          spec.get("scan_rate_ms") or 1000, spec.get("exc_dev"),
-         spec.get("comp_dev"), spec.get("max_time_ms")))
+         spec.get("comp_dev"), spec.get("max_time_ms"),
+         spec.get("source_path")))
     tag_id = cur.fetchone()[0]
     _audit(cur, actor, "tag", str(tag_id), name, "created by asset instantiation")
     return tag_id
@@ -230,9 +240,13 @@ def instantiate(conn: psycopg.Connection, template: str, *, asset_code: str,
                     "description": description or attr_name,
                     "engineering_unit": unit, "range_low": rlo, "range_high": rhi,
                     "scan_rate_ms": scan, "exc_dev": exc, "comp_dev": comp,
-                    "max_time_ms": maxt, "source_system": source}, actor)
-                cur.execute("UPDATE tag SET element_id = %s WHERE id = %s",
-                            (element_id, tag_id))
+                    "max_time_ms": maxt, "source_system": source,
+                    "source_path": context.get("source_path")}, actor)
+                # Mapping a tag to an element is a configuration change, and
+                # is audited like one.
+                audit.change(cur, "tag", tag_id, "element_id", element_id,
+                             actor=actor,
+                             reason=f"mapped to {asset_code} by asset instantiation")
             else:
                 static_value = default_value
             cur.execute(

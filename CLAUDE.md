@@ -117,15 +117,17 @@ Real sensors on a bench, read by an ESP32 publishing Modbus. Available:
 | ACS712 30 A current sensor | 1 | Spare — too coarse for this load |
 | DS18B20 probe | 2 | Motor hub temperature, ambient |
 | MPU-6050 | 1 | Vibration, and coast-down detection |
-| 1-channel 5 V relay | 2 | ESP32-commanded start/stop, two groups |
+| 1-channel 5 V relay, **active-low** (IN pulled LOW energises the coil) | 2 | ESP32-commanded start/stop, two groups |
 | MAX485 module | 2 | RS-485 two-wire bus |
 | USB-CH340 RS-485 adapter | 1 | Bus master on the laptop |
 | Rocker switch, tactile buttons | — | Digital state inputs |
 
 Wiring notes that matter: all three fans sit downstream of the ACS712 so it measures total
-load. Fan starts are staggered by ~500 ms in firmware — three fans starting together draw
-about 1.2 A against a 1 A supply. The DS18B20 data line needs a 4.7 kΩ pull-up to 3.3 V,
-and both probes share one wire by address.
+load, and behind a relay, so the ACS712 can be zeroed with the load off. The relays are
+active-low: the firmware must hold IN high at boot or every fan starts before anything
+else runs. Fan starts are staggered by ~500 ms in firmware — three fans starting together
+draw about 1.2 A against a 1 A supply. The DS18B20 data line needs a 4.7 kΩ pull-up to
+3.3 V, and both probes share one wire — identified by ROM address, never by bus order.
 
 The station-side machine is a spare laptop, not a Pi. Pulling its Ethernet cable is the
 outage test.

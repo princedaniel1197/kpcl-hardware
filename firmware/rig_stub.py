@@ -26,16 +26,17 @@ import math
 import random
 import struct
 
-from sim.bridge import (IREG_COUNT, IREG_CURRENT_MA, IREG_SCAN_COUNT,
-                        IREG_STATUS, IREG_SUPPLY_MV, IREG_TEMP_AMB_X10,
-                        IREG_TEMP_HUB_X10, IREG_VIB_MMS_X100, ST_ACS_OK,
+from sim.bridge import (INVALID_S16, INVALID_U16, IREG_ACS_ZERO_MV, IREG_COUNT,
+                        IREG_CURRENT_MA, IREG_SCAN_COUNT, IREG_STATUS,
+                        IREG_SUPPLY_MV, IREG_TEMP_AMB_X10, IREG_TEMP_HUB_X10,
+                        IREG_VIB_MMS_X100, ST_ACS_OK, ST_ACS_ZEROED,
                         ST_AMBIENT_OK, ST_BUS_OK, ST_HUB_OK, ST_MPU_OK,
-                        ST_SUPPLY_OK, TEMP_INVALID)
+                        ST_PROBES_CONFIG, ST_SUPPLY_OK)
 
 log = logging.getLogger("rig_stub")
 
 ALL_OK = (ST_HUB_OK | ST_AMBIENT_OK | ST_MPU_OK | ST_ACS_OK | ST_SUPPLY_OK
-          | ST_BUS_OK)
+          | ST_BUS_OK | ST_ACS_ZEROED | ST_PROBES_CONFIG)
 
 READ_DISCRETE_INPUTS = 2
 READ_INPUT_REGISTERS = 4
@@ -49,6 +50,7 @@ class RigStub:
     def __init__(self) -> None:
         self.hub_connected = True
         self.ambient_connected = True
+        self.probes_configured = True
         self.running = True
         self.scan = 0
         self.input_registers = [0] * IREG_COUNT
@@ -67,26 +69,34 @@ class RigStub:
         rng = random.Random(self.scan)
 
         values = [0] * IREG_COUNT
-        values[IREG_CURRENT_MA] = int(460 + rng.gauss(0, 8)) if self.running else 0
+        # Signed: a fan load reads positive, and a little either side of zero
+        # when stopped.
+        current = int(460 + rng.gauss(0, 8)) if self.running else int(rng.gauss(0, 6))
+        values[IREG_CURRENT_MA] = current & 0xFFFF
         values[IREG_VIB_MMS_X100] = int((240 + rng.gauss(0, 20))
                                         if self.running else 5)
         values[IREG_SUPPLY_MV] = int(12050 + rng.gauss(0, 30))
+        values[IREG_ACS_ZERO_MV] = 2503
 
-        if self.hub_connected:
+        if not self.probes_configured:
+            status &= ~(ST_PROBES_CONFIG | ST_HUB_OK | ST_AMBIENT_OK)
+        if self.hub_connected and self.probes_configured:
             hub = int(round((42.0 + 3 * math.sin(self.scan / 30)
                              + rng.gauss(0, 0.2)) * 10))
         else:
             # Exactly what the firmware does: the sentinel AND the cleared bit.
-            hub = TEMP_INVALID
+            hub = INVALID_S16
             status &= ~ST_HUB_OK
-        if self.ambient_connected:
+        if self.ambient_connected and self.probes_configured:
             ambient = int(round((24.0 + rng.gauss(0, 0.15)) * 10))
         else:
-            ambient = TEMP_INVALID
+            ambient = INVALID_S16
             status &= ~ST_AMBIENT_OK
 
         values[IREG_TEMP_HUB_X10] = hub & 0xFFFF
         values[IREG_TEMP_AMB_X10] = ambient & 0xFFFF
+        assert INVALID_U16 not in (values[IREG_VIB_MMS_X100],
+                                   values[IREG_SUPPLY_MV])
         values[IREG_STATUS] = status
         values[IREG_SCAN_COUNT] = self.scan & 0xFFFF
         self.input_registers = values

@@ -10,7 +10,7 @@
 # the machine. Off-siting it is a deployment decision and is not simulated here.
 set -euo pipefail
 
-DOCKER="${DOCKER:-/Applications/Docker.app/Contents/Resources/bin/docker}"
+source "$(dirname "${BASH_SOURCE[0]}")/docker.sh"
 CONTAINER="${CONTAINER:-crpms-timescaledb}"
 USER_NAME="${POSTGRES_USER:-crpms}"
 DB="${POSTGRES_DB:-crpms}"
@@ -21,9 +21,15 @@ mkdir -p "$DEST"
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 FILE="$DEST/crpms-$STAMP.dump"
 
+# Written under a temporary name and renamed only when pg_dump has succeeded. A
+# dump that failed half way must never be mistaken for a backup -- and must
+# never count towards retention, where it would push a good one out.
+PARTIAL="$FILE.partial"
+trap 'rm -f "$PARTIAL"' EXIT
 started=$(date +%s)
 "$DOCKER" exec "$CONTAINER" pg_dump -U "$USER_NAME" -d "$DB" \
-    --format=custom --compress=6 > "$FILE"
+    --format=custom --compress=6 > "$PARTIAL"
+mv "$PARTIAL" "$FILE"
 finished=$(date +%s)
 
 SIZE=$(wc -c < "$FILE" | tr -d ' ')

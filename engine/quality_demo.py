@@ -31,7 +31,10 @@ import urllib.request
 
 import psycopg
 
+from archive import audit
 from engine import quality as q
+
+ACTOR = "stage6-demo"
 
 DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms")
 CONTROL = os.environ.get("SIM_CONTROL", "http://127.0.0.1:8081")
@@ -71,7 +74,7 @@ def check(conn, name: str, heading: str, lookback: float = 300.0):
         print(f"    flagged[{rule}]{' ' * max(0, 4 - len(rule))} : {f.reason}")
     if not flags:
         print("    flagged          : nothing")
-    return health, set(seen)
+    return health, seen
 
 
 def main() -> int:
@@ -102,43 +105,57 @@ def main() -> int:
         control("DELETE", "/quality/U1_COAL_FLOW")
 
         # --- 1. out of range ----------------------------------------------
+        # A configuration change like any other, so it is audited like any
+        # other, and restored whatever happens. The flags this leaves in
+        # quality_flag are then explained by the audit log rather than looking
+        # like a defect in the tag configuration.
+        tid = tag_id(conn, "U1_MS_TEMP")
         with conn.cursor() as cur:
-            tid = tag_id(conn, "U1_MS_TEMP")
             cur.execute("SELECT range_high FROM tag WHERE id=%s", (tid,))
             original_range = cur.fetchone()[0]
-            cur.execute("UPDATE tag SET range_high = 300 WHERE id=%s", (tid,))
+            audit.change(cur, "tag", tid, "range_high", 300.0, actor=ACTOR,
+                         reason="Stage 6 test: EURange narrowed to force an "
+                                "out-of-range condition; restored after")
             conn.commit()
-        oor, rules = check(conn, "U1_MS_TEMP",
-                           "1. OUT OF RANGE — EURange narrowed to 0-300 degC")
+        try:
+            oor, rules = check(conn, "U1_MS_TEMP",
+                               "1. OUT OF RANGE — EURange narrowed to 0-300 degC")
+        finally:
+            with conn.cursor() as cur:
+                audit.change(cur, "tag", tid, "range_high", original_range,
+                             actor=ACTOR, reason="Stage 6 test: EURange restored")
+                conn.commit()
         r["out of range flagged"] = "range" in rules
         r["out of range: source stayed Good"] = q.severity(oor.source_quality or 0) == 0
-        r["out of range: computed is Bad"] = oor.computed_quality == q.OUT_OF_RANGE
-        with conn.cursor() as cur:
-            cur.execute("UPDATE tag SET range_high=%s WHERE id=%s",
-                        (original_range, tid))
-            conn.commit()
+        r["out of range: computed is Bad"] = (
+            "range" in rules and rules["range"].computed_quality == q.OUT_OF_RANGE)
 
         # --- 2. cross-tag, while the unit is still at load ------------------
         fw = tag_id(conn, "U1_FEEDWATER_FLOW")
         with conn.cursor() as cur:
-            cur.execute("SELECT params FROM quality_rule WHERE tag_id=%s"
+            cur.execute("SELECT id, params FROM quality_rule WHERE tag_id=%s"
                         " AND rule_type='cross_tag'", (fw,))
-            original_params = cur.fetchone()[0]
-            cur.execute("UPDATE quality_rule SET params=%s WHERE tag_id=%s"
-                        " AND rule_type='cross_tag'",
-                        (json.dumps({**original_params, "tolerance": 0.0001}), fw))
+            rule_id, original_params = cur.fetchone()
+            audit.change(cur, "quality_rule", rule_id, "params",
+                         {**original_params, "tolerance": 0.0001}, actor=ACTOR,
+                         reason="Stage 6 test: cross-tag tolerance tightened to "
+                                "force an inconsistency; restored after")
             conn.commit()
-        cross, rules = check(conn, "U1_FEEDWATER_FLOW",
-                             "2. CROSS-TAG — tolerance tightened to 0.01%",
-                             lookback=30.0)
+        try:
+            cross, rules = check(conn, "U1_FEEDWATER_FLOW",
+                                 "2. CROSS-TAG — tolerance tightened to 0.01%",
+                                 lookback=30.0)
+        finally:
+            with conn.cursor() as cur:
+                audit.change(cur, "quality_rule", rule_id, "params",
+                             original_params, actor=ACTOR,
+                             reason="Stage 6 test: tolerance restored")
+                conn.commit()
         r["cross-tag flagged"] = "cross_tag" in rules
+        # The verdict the rule actually produced, not the constant it uses.
         r["cross-tag: Uncertain not Bad"] = (
-            q.severity(q.INCONSISTENT) == 1)
-        with conn.cursor() as cur:
-            cur.execute("UPDATE quality_rule SET params=%s WHERE tag_id=%s"
-                        " AND rule_type='cross_tag'",
-                        (json.dumps(original_params), fw))
-            conn.commit()
+            "cross_tag" in rules
+            and q.severity(rules["cross_tag"].computed_quality) == 1)
 
         # --- 3. rate of change: a real step ---------------------------------
         print("\n  3. RATE OF CHANGE — restarting the start-up sequence")
@@ -149,7 +166,9 @@ def main() -> int:
         rate, rules = check(conn, "U1_MS_TEMP", "     after the step",
                             lookback=60.0)
         r["rate of change flagged"] = "rate_of_change" in rules
-        r["rate of change: Uncertain not Bad"] = q.severity(q.RATE_EXCEEDED) == 1
+        r["rate of change: Uncertain not Bad"] = (
+            "rate_of_change" in rules
+            and q.severity(rules["rate_of_change"].computed_quality) == 1)
         r["rate of change: source stayed Good"] = (
             q.severity(rate.source_quality or 0) == 0)
 

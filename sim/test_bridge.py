@@ -18,12 +18,14 @@ from sim import bridge
 
 GOOD = 0
 BAD_DEVICE = int(ua.StatusCodes.BadDeviceFailure)
+BAD_CONFIG = int(ua.StatusCodes.BadConfigurationError)
+BAD_RANGE = int(ua.StatusCodes.BadOutOfRange)
 
 
 def registers(hub=425, ambient=240, status=ALL_OK, current=460, vib=234,
               supply=12050) -> list[int]:
     words = [0] * bridge.IREG_COUNT
-    words[bridge.IREG_CURRENT_MA] = current
+    words[bridge.IREG_CURRENT_MA] = current & 0xFFFF
     words[bridge.IREG_VIB_MMS_X100] = vib
     words[bridge.IREG_TEMP_HUB_X10] = hub & 0xFFFF
     words[bridge.IREG_TEMP_AMB_X10] = ambient & 0xFFFF
@@ -55,7 +57,57 @@ def test_temperature_registers_are_signed():
     assert quality == GOOD
 
 
+def test_current_is_signed_so_a_wrong_zero_shows():
+    """Register map v2. A fan load cannot run backwards; a negative current is
+    a wrong zero, and an unsigned register (or an RMS) would have hidden it."""
+    words = registers(current=-37)
+    value, quality, _ = bridge.decode(point("RIG_CURRENT"), words, ALL_OK)
+    assert value == pytest.approx(-0.037) and quality == GOOD
+
+
 # --- the failure mapping, which is the point ---------------------------------
+
+@pytest.mark.parametrize("tag, sentinel", [
+    ("RIG_CURRENT", bridge.INVALID_S16), ("RIG_VIBRATION", bridge.INVALID_U16),
+    ("RIG_HUB_TEMP", bridge.INVALID_S16), ("RIG_SUPPLY_V", bridge.INVALID_U16)])
+def test_every_channel_has_a_sentinel_the_bridge_refuses(tag, sentinel):
+    """Register map v2: zero is what a stopped fan reads, so no channel reports
+    a failure as zero any more."""
+    p = point(tag)
+    words = registers()
+    words[p.register] = sentinel & 0xFFFF
+    value, quality, reason = bridge.decode(p, words, ALL_OK)
+    assert value is None and quality == BAD_DEVICE and "disagree" in reason
+
+
+def test_unconfigured_probe_addresses_say_so():
+    """Without configured ROM addresses the firmware cannot know which probe is
+    the hub, and says so; the bridge maps that to BadConfigurationError, not to
+    a sensor failure that sends someone to check the wiring."""
+    status = ALL_OK & ~(bridge.ST_PROBES_CONFIG | bridge.ST_HUB_OK
+                        | bridge.ST_AMBIENT_OK)
+    words = registers(hub=bridge.INVALID_S16, ambient=bridge.INVALID_S16,
+                      status=status)
+    for tag in ("RIG_HUB_TEMP", "RIG_AMBIENT_TEMP"):
+        value, quality, reason = bridge.decode(point(tag), words, status)
+        assert value is None and quality == BAD_CONFIG and "ROM" in reason
+    assert bridge.decode(point("RIG_CURRENT"), words, status)[1] == GOOD
+
+
+def test_a_supply_beyond_the_adc_is_out_of_range_not_a_device_failure():
+    status = ALL_OK & ~bridge.ST_SUPPLY_OK
+    words = registers(supply=bridge.INVALID_U16, status=status)
+    value, quality, _ = bridge.decode(point("RIG_SUPPLY_V"), words, status)
+    assert value is None and quality == BAD_RANGE
+
+
+def test_a_low_supply_is_still_a_measurement():
+    """9.8 V during a brown-out is the reading worth having. The firmware no
+    longer clears the bit for it; judging it is the quality engine's job."""
+    words = registers(supply=9800)
+    value, quality, _ = bridge.decode(point("RIG_SUPPLY_V"), words, ALL_OK)
+    assert value == pytest.approx(9.8) and quality == GOOD
+
 
 def test_a_clear_status_bit_becomes_bad_device_failure():
     words = registers(hub=bridge.TEMP_INVALID)
@@ -98,8 +150,10 @@ def test_the_sentinel_is_caught_even_if_the_status_bit_lies():
 
 def test_the_ds18b20_power_on_value_would_be_plausible_and_is_not_trusted():
     """85.0 degC is the DS18B20's power-on-reset reading and an entirely
-    credible motor hub temperature. The firmware maps it to the sentinel and
-    clears the bit; this asserts the bridge refuses it either way."""
+    credible motor hub temperature. Recognising it is the FIRMWARE's job -- it
+    is the only side that knows the probe was read -- and it clears the bit.
+    This asserts the bridge then refuses the register. (With the bit set the
+    bridge cannot tell a reset from a reading; that is why the firmware must.)"""
     words = registers(hub=850)                       # 85.0 degC
     _, quality, _ = bridge.decode(point("RIG_HUB_TEMP"), words,
                                   ALL_OK & ~bridge.ST_HUB_OK)
@@ -168,3 +222,67 @@ def test_no_modbus_write_is_issued_by_the_bridge():
     for forbidden in ("write_coil", "write_coils", "write_register",
                       "write_registers"):
         assert forbidden not in calls
+
+
+# --- end to end: stand-in -> pymodbus -> bridge -> OPC UA ---------------------
+
+async def test_a_failed_probe_reaches_opc_ua_as_bad_with_no_value():
+    """The whole path the bench rig will use, against the stand-in: the rig's
+    register image over real Modbus TCP, decoded by the bridge, published into
+    a real OPC UA server, read back by a real client."""
+    import asyncio
+    import socket
+    from asyncua import Client, Server
+
+    from firmware import rig_stub
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        modbus_port = probe.getsockname()[1]
+    rig = RigStub()
+    modbus = await asyncio.start_server(
+        lambda r, w: rig_stub._serve_client(rig, r, w), "127.0.0.1", modbus_port)
+
+    server = Server()
+    await server.init()
+    endpoint = "opc.tcp://127.0.0.1:48460/bridge-test/"
+    server.set_endpoint(endpoint)
+    idx = await server.register_namespace("urn:orianode:crpms:sim")
+    b = bridge.ModbusBridge(server, idx, "127.0.0.1", modbus_port)
+    await b.build_address_space()
+    async with server, modbus:
+        client = Client(endpoint)
+        await client.connect()
+        try:
+            async def read(tag):
+                node = await client.nodes.objects.get_child(
+                    [f"{idx}:BenchRig", f"{idx}:{tag}"])
+                return await node.read_data_value(raise_on_bad_status=False)
+
+            assert await b.poll_once()
+            good = await read("RIG_HUB_TEMP")
+            assert good.StatusCode.value == GOOD
+            assert good.Value.Value == pytest.approx(
+                bridge._signed(rig.input_registers[bridge.IREG_TEMP_HUB_X10]) / 10)
+
+            rig.unplug_hub()
+            rig.step()
+            assert await b.poll_once()
+            bad = await read("RIG_HUB_TEMP")
+            assert bad.StatusCode.value == BAD_DEVICE
+            assert bad.Value.Value is None
+            # And only the hub.
+            assert (await read("RIG_AMBIENT_TEMP")).StatusCode.value == GOOD
+            assert (await read("RIG_CURRENT")).StatusCode.value == GOOD
+        finally:
+            b.close()
+            await client.disconnect()
+
+
+def test_the_bridge_takes_tcp_or_rtu_but_not_both():
+    with pytest.raises(ValueError):
+        bridge.ModbusBridge(None, 2, host="10.0.0.9", serial_port="/dev/ttyUSB0")
+    with pytest.raises(ValueError):
+        bridge.ModbusBridge(None, 2)
+    rtu = bridge.ModbusBridge(None, 2, serial_port="/dev/ttyUSB0", baudrate=19200)
+    assert "RTU" in rtu.where and "19200" in rtu.where

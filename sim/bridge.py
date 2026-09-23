@@ -6,14 +6,26 @@ no change**: it already subscribes to whatever tags the tag table lists, and the
 rig's tags were created from a template by Stage 5.
 
 THE MAPPING THAT MATTERS. The firmware's status word says, per sensor, whether
-this scan's reading can be trusted. A clear bit becomes `BadDeviceFailure` on
-that tag and nothing else — the value is not published, the previous value is
+this scan's reading can be trusted. A clear bit becomes a Bad StatusCode on that
+tag and nothing else -- the value is published as null, the previous value is
 not republished, and no zero is invented. That is §318 crossing a fieldbus
-boundary, which is the one place it is easiest to lose.
+boundary, which is the one place it is easiest to lose. The Bad code says which
+failure it was: BadDeviceFailure for a sensor that did not read (the build
+plan's mapping), BadConfigurationError for temperature probes whose ROM
+addresses have not been configured in the firmware, and BadOutOfRange for a
+supply voltage beyond what the ADC can measure.
+
+The register map is REGISTER_MAP.md, version 2 (review of 23 September 2026):
+current is signed so that a wrong zero shows as negative instead of being
+hidden, every channel has a sentinel, and the supply status bit means "the ADC
+could measure it" rather than "the supply is within limits" -- a brown-out
+reading is the one worth having, and judging it is the monitoring system's job.
 
 The bridge lives in sim/ rather than collector/ because it is a source of data,
-not an acquirer of it. Putting it in collector/ would also put a Modbus write
-capability inside the package that is required to have no write path at all.
+not an acquirer of it. It WRITES values into the OPC UA server's address space --
+that is what republishing is -- and putting it in collector/ would put an OPC UA
+write inside the package that is required to have no write path at all. It
+issues no Modbus write to the rig; a test asserts that.
 """
 
 from __future__ import annotations
@@ -35,7 +47,8 @@ IREG_TEMP_AMB_X10 = 3
 IREG_SUPPLY_MV = 4
 IREG_STATUS = 5
 IREG_SCAN_COUNT = 6
-IREG_COUNT = 7
+IREG_ACS_ZERO_MV = 7
+IREG_COUNT = 8
 
 ST_HUB_OK = 1 << 0
 ST_AMBIENT_OK = 1 << 1
@@ -43,11 +56,18 @@ ST_MPU_OK = 1 << 2
 ST_ACS_OK = 1 << 3
 ST_SUPPLY_OK = 1 << 4
 ST_BUS_OK = 1 << 5
+ST_ACS_ZEROED = 1 << 6
+ST_PROBES_CONFIG = 1 << 7
 
-TEMP_INVALID = -32768
+# Sentinels no sensor on the rig can produce.
+INVALID_S16 = -32768
+INVALID_U16 = 0xFFFF
+TEMP_INVALID = INVALID_S16          # the name the stand-in and tests use
 
 GOOD = int(ua.StatusCodes.Good)
 BAD_DEVICE_FAILURE = int(ua.StatusCodes.BadDeviceFailure)
+BAD_CONFIGURATION = int(ua.StatusCodes.BadConfigurationError)
+BAD_OUT_OF_RANGE = int(ua.StatusCodes.BadOutOfRange)
 BAD_NO_COMMUNICATION = int(ua.StatusCodes.BadNoCommunication)
 
 
@@ -64,28 +84,39 @@ class Point:
     signed: bool = False
     eu_low: float = 0.0
     eu_high: float = 100.0
+    # Which Bad code a clear status bit means for this point.
+    bad_code: int = BAD_DEVICE_FAILURE
+    needs_probe_config: bool = False
+
+    @property
+    def invalid(self) -> int:
+        return INVALID_S16 if self.signed else INVALID_U16
 
 
 POINTS: tuple[Point, ...] = (
+    # The ACS712-05B spans -5 A to +5 A; that is the instrument's range.
     Point("RIG_CURRENT", IREG_CURRENT_MA, 0.001, "A",
-          "Bench rig total load current (ACS712 5 A)", ST_ACS_OK,
-          eu_low=0.0, eu_high=5.0),
+          "Bench rig total load current (ACS712 5 A)", ST_ACS_OK, signed=True,
+          eu_low=-5.0, eu_high=5.0),
     Point("RIG_VIBRATION", IREG_VIB_MMS_X100, 0.01, "mm/s",
           "Bench rig fan vibration (MPU-6050, approximate velocity)",
           ST_MPU_OK, eu_low=0.0, eu_high=50.0),
     Point("RIG_HUB_TEMP", IREG_TEMP_HUB_X10, 0.1, "degC",
           "Fan motor hub temperature (DS18B20)", ST_HUB_OK, signed=True,
-          eu_low=-55.0, eu_high=125.0),
+          eu_low=-55.0, eu_high=125.0, needs_probe_config=True),
     Point("RIG_AMBIENT_TEMP", IREG_TEMP_AMB_X10, 0.1, "degC",
           "Ambient temperature (DS18B20)", ST_AMBIENT_OK, signed=True,
-          eu_low=-55.0, eu_high=125.0),
+          eu_low=-55.0, eu_high=125.0, needs_probe_config=True),
     Point("RIG_SUPPLY_V", IREG_SUPPLY_MV, 0.001, "V",
-          "Bench rig supply voltage", ST_SUPPLY_OK, eu_low=0.0, eu_high=15.0),
+          "Bench rig supply voltage", ST_SUPPLY_OK, eu_low=0.0, eu_high=15.0,
+          bad_code=BAD_OUT_OF_RANGE),
 )
 
-DIGITALS = (("RIG_RUNNING", 0, "Rig run/stop state"),
-            ("RIG_RELAY_1", 1, "Relay group 1 energised"),
-            ("RIG_RELAY_2", 2, "Relay group 2 energised"))
+# The discrete inputs report what the firmware COMMANDED the relays to do; the
+# rig has no contact feedback, and the names say so.
+DIGITALS = (("RIG_RUNNING", 0, "Rig run/stop state (rocker switch)"),
+            ("RIG_RELAY_1", 1, "Relay group 1 commanded on"),
+            ("RIG_RELAY_2", 2, "Relay group 2 commanded on"))
 
 
 def _signed(word: int) -> int:
@@ -100,39 +131,61 @@ def decode(point: Point, registers: list[int], status: int
     firmware says the sensor was read successfully this scan. Otherwise the
     value is None — not the last one, not zero.
     """
+    if point.needs_probe_config and not (status & ST_PROBES_CONFIG):
+        return None, BAD_CONFIGURATION, (
+            f"{point.tag}: the DS18B20 ROM addresses are not configured in the "
+            f"firmware (rig_config.h), so no probe can be trusted to be this one")
     if not (status & point.status_bit):
-        return None, BAD_DEVICE_FAILURE, (
+        return None, point.bad_code, (
             f"firmware status bit for {point.tag} is clear: the sensor was not "
             f"read successfully this scan")
     raw = registers[point.register]
+    if raw == (point.invalid & 0xFFFF):
+        # Belt and braces: the status bit should already have caught this.
+        # If it did not, the firmware and the bridge disagree, which is
+        # worth saying rather than silently trusting one of them.
+        return None, BAD_DEVICE_FAILURE, (
+            f"{point.tag} holds the invalid sentinel although its status "
+            f"bit is set — firmware and bridge disagree")
     if point.signed:
         raw = _signed(raw)
-        if raw == TEMP_INVALID:
-            # Belt and braces: the status bit should already have caught this.
-            # If it did not, the firmware and the bridge disagree, which is
-            # worth saying rather than silently trusting one of them.
-            return None, BAD_DEVICE_FAILURE, (
-                f"{point.tag} holds the invalid sentinel although its status "
-                f"bit is set — firmware and bridge disagree")
     return raw * point.scale, GOOD, None
 
 
 class ModbusBridge:
-    """Polls the rig and publishes into an existing OPC UA server."""
+    """Polls the rig and publishes into an existing OPC UA server.
 
-    def __init__(self, server, namespace_index: int, host: str,
+    Over Modbus TCP (the rig on WiFi) or Modbus RTU (the rig on RS-485 through
+    a MAX485, read from the USB-CH340 adapter), with the same register map and
+    the same decoding either way.
+    """
+
+    def __init__(self, server, namespace_index: int, host: str | None = None,
                  port: int = 502, unit_id: int = 1,
-                 poll_interval_s: float = 1.0) -> None:
+                 poll_interval_s: float = 1.0, *,
+                 serial_port: str | None = None, baudrate: int = 19200) -> None:
+        if (host is None) == (serial_port is None):
+            raise ValueError("give either a TCP host or a serial port")
         self.server = server
         self.idx = namespace_index
         self.host = host
         self.port = port
+        self.serial_port = serial_port
+        self.baudrate = baudrate
         self.unit_id = unit_id
         self.poll_interval_s = poll_interval_s
         self._nodes: dict[str, object] = {}
         self._client = None
         self.polls = 0
         self.failures = 0
+        self._last_failure: str | None = None
+        self._reasons: dict[str, str | None] = {}
+
+    @property
+    def where(self) -> str:
+        if self.serial_port:
+            return f"{self.serial_port} at {self.baudrate} baud 8N1 (RTU)"
+        return f"{self.host}:{self.port} (TCP)"
 
     async def build_address_space(self) -> None:
         """Create the rig's nodes under their own object.
@@ -165,20 +218,29 @@ class ModbusBridge:
         log.info("bench rig address space: %d points", len(self._nodes))
 
     async def _connect(self) -> bool:
-        from pymodbus.client import AsyncModbusTcpClient
         if self._client is not None and self._client.connected:
             return True
-        self._client = AsyncModbusTcpClient(self.host, port=self.port)
+        if self.serial_port:
+            from pymodbus.client import AsyncModbusSerialClient
+            self._client = AsyncModbusSerialClient(
+                self.serial_port, baudrate=self.baudrate, bytesize=8,
+                parity="N", stopbits=1)
+        else:
+            from pymodbus.client import AsyncModbusTcpClient
+            self._client = AsyncModbusTcpClient(self.host, port=self.port)
         await self._client.connect()
         return bool(self._client.connected)
 
     async def _publish(self, tag: str, value, quality: int,
                        variant: ua.VariantType, source_ts: dt.datetime) -> None:
+        """Publish into the address space. A value of None is published as a
+        null Variant: not zero, not the previous value."""
         node = self._nodes.get(tag)
         if node is None:
             return
         await node.write_value(ua.DataValue(
-            Value=ua.Variant(value, variant),
+            Value=(ua.Variant(None, ua.VariantType.Null) if value is None
+                   else ua.Variant(value, variant)),
             StatusCode=ua.StatusCode(quality),
             # The instant the bridge read the rig. The rig has no clock of its
             # own, so this is the earliest honest measurement time available,
@@ -210,14 +272,20 @@ class ModbusBridge:
                                      f"Modbus exception: {registers}")
             return False
 
+        self._last_failure = None
         words = list(registers.registers)
         status = words[IREG_STATUS]
         for point in POINTS:
             value, quality, reason = decode(point, words, status)
-            if reason:
-                log.warning("%s: %s", point.tag, reason)
-            await self._publish(point.tag, value if value is not None else 0.0,
-                                quality, ua.VariantType.Double, source_ts)
+            # Logged when it changes, not on every poll.
+            if reason != self._reasons.get(point.tag):
+                if reason:
+                    log.warning("%s: %s", point.tag, reason)
+                elif point.tag in self._reasons:
+                    log.info("%s: reading again", point.tag)
+                self._reasons[point.tag] = reason
+            await self._publish(point.tag, value, quality,
+                                ua.VariantType.Double, source_ts)
         for tag, bit, _ in DIGITALS:
             await self._publish(tag, bool(discretes.bits[bit]), GOOD,
                                 ua.VariantType.Boolean, source_ts)
@@ -226,17 +294,25 @@ class ModbusBridge:
 
     async def _mark_all_bad(self, quality: int, reason: str) -> None:
         """Losing the rig is not the same as the rig reading zero."""
+        if reason != self._last_failure:
+            log.warning("rig unavailable: %s", reason)
+            self._last_failure = reason
         source_ts = dt.datetime.now(dt.timezone.utc)
         for point in POINTS:
-            await self._publish(point.tag, 0.0, quality,
+            await self._publish(point.tag, None, quality,
                                 ua.VariantType.Double, source_ts)
         for tag, _, _ in DIGITALS:
-            await self._publish(tag, False, quality, ua.VariantType.Boolean,
+            await self._publish(tag, None, quality, ua.VariantType.Boolean,
                                 source_ts)
 
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
     async def run(self) -> None:
-        log.info("bridging %s:%d unit %d every %.1fs", self.host, self.port,
-                 self.unit_id, self.poll_interval_s)
+        log.info("bridging %s unit %d every %.1fs", self.where, self.unit_id,
+                 self.poll_interval_s)
         while True:
             try:
                 await self.poll_once()

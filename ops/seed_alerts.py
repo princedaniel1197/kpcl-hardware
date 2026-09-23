@@ -9,34 +9,43 @@ from pathlib import Path
 
 import psycopg
 
+from archive import audit
+
 DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "alert_rules.json"
 
 
+FIELDS = ("description", "subject_kind", "subject", "condition", "threshold",
+          "for_seconds", "severity", "recipients")
+DEFAULTS = {"for_seconds": 30, "severity": "warning", "recipients": []}
+
+
 def seed(conn: psycopg.Connection, spec: dict, actor: str) -> int:
+    """Create or update alert rules. Every change is audited with the value it
+    replaced (§433); a rule that is already as configured is left alone and
+    writes no audit row."""
     count = 0
     with conn.cursor() as cur:
         for r in spec["rules"]:
-            cur.execute(
-                "INSERT INTO alert_rule (name, description, subject_kind,"
-                " subject, condition, threshold, for_seconds, severity,"
-                " recipients) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (name) DO UPDATE SET"
-                " description=EXCLUDED.description,"
-                " subject_kind=EXCLUDED.subject_kind, subject=EXCLUDED.subject,"
-                " condition=EXCLUDED.condition, threshold=EXCLUDED.threshold,"
-                " for_seconds=EXCLUDED.for_seconds, severity=EXCLUDED.severity,"
-                " recipients=EXCLUDED.recipients RETURNING id",
-                (r["name"], r.get("description"), r["subject_kind"],
-                 r["subject"], r["condition"], r.get("threshold"),
-                 r.get("for_seconds", 30), r.get("severity", "warning"),
-                 r.get("recipients", [])))
-            rule_id = cur.fetchone()[0]
-            cur.execute(
-                "INSERT INTO audit_log (actor, entity, entity_id, field,"
-                " old_value, new_value, reason) VALUES"
-                " (%s,'alert_rule',%s,NULL,NULL,%s,'seeded from config')",
-                (actor, str(rule_id), r["name"]))
-            count += 1
+            wanted = {f: r.get(f, DEFAULTS.get(f)) for f in FIELDS}
+            cur.execute("SELECT id FROM alert_rule WHERE name = %s", (r["name"],))
+            existing = cur.fetchone()
+            if existing is None:
+                cur.execute(
+                    "INSERT INTO alert_rule (name, " + ", ".join(FIELDS) + ")"
+                    " VALUES (" + ", ".join(["%s"] * (len(FIELDS) + 1)) + ")"
+                    " RETURNING id", [r["name"], *wanted.values()])
+                rule_id = cur.fetchone()[0]
+                audit.record(cur, actor=actor, entity="alert_rule",
+                             entity_id=rule_id, field=None, old=None,
+                             new=r["name"], reason="seeded from config")
+                count += 1
+                continue
+            changed = False
+            for field, value in wanted.items():
+                changed |= audit.change(cur, "alert_rule", existing[0], field,
+                                        value, actor=actor,
+                                        reason="seeded from config")
+            count += changed
     conn.commit()
     return count
 
@@ -49,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     dsn = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms")
     with psycopg.connect(dsn) as conn:
         count = seed(conn, json.loads(args.config.read_text()), args.actor)
-    print(f"{count} alert rules configured")
+    print(f"{count} alert rules created or changed")
     return 0
 
 

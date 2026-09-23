@@ -1,11 +1,11 @@
 {
   "_comment": [
     "Asset model for the CRPMS demonstrator.",
-    "KPCL -> Station -> Unit -> System -> Equipment -> Parameter (\u00a7392).",
+    "KPCL -> Station -> Unit -> System -> Equipment -> Parameter (§392).",
     "Adding a unit is an entry in 'elements' below -- one object, no code.",
     "Tag patterns resolve against an element's context, so the same template",
     "produces U1_MS_TEMP for one unit and U2_MS_TEMP for the next.",
-    "Naming follows ISA-95/ISA-88; the convention is in engine/README.md (\u00a7385)."
+    "Naming follows ISA-95/ISA-88; the convention is in engine/README.md (§385)."
   ],
   "templates": [
     {
@@ -403,7 +403,8 @@
       "parent_code": "KPCL-RTPS",
       "context": {
         "station": "RTPS",
-        "unit": "U1"
+        "unit": "U1",
+        "source_path": "Unit1"
       }
     },
     {
@@ -413,7 +414,8 @@
       "parent_code": "KPCL-RTPS",
       "context": {
         "station": "RTPS",
-        "unit": "U2"
+        "unit": "U2",
+        "source_path": "Unit2"
       }
     },
     {
@@ -423,7 +425,8 @@
       "parent_code": "KPCL-RTPS",
       "context": {
         "station": "RTPS",
-        "rig": "RIG"
+        "rig": "RIG",
+        "source_path": "BenchRig"
       }
     }
   ]

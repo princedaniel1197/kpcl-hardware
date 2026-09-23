@@ -20,9 +20,13 @@ def conn():
 
     Creating a principal COMMITS -- it has to, because the token is returned to
     a caller who will use it on another connection. So rolling back is not
-    enough: the fixture removes what the tests made. Without this the suite
-    passed in isolation and failed the second time it ran, which is the worst
-    kind of test.
+    enough: the fixture removes the principals and rules the tests made.
+    Without this the suite passed in isolation and failed the second time it
+    ran, which is the worst kind of test.
+
+    It does NOT remove the audit rows the tests wrote. It used to; the audit
+    log is append-only now (migration 015), and those rows are true records of
+    what the tests did.
     """
     try:
         connection = psycopg.connect(DSN, connect_timeout=5)
@@ -34,7 +38,6 @@ def conn():
         connection.rollback()
         with connection.cursor() as cur:
             cur.execute("DELETE FROM principal WHERE username LIKE 'test.%'")
-            cur.execute("DELETE FROM audit_log WHERE actor IN ('test','inspector')")
             cur.execute("DELETE FROM alert_rule WHERE name = 'bad-sev'")
         connection.commit()
         connection.close()

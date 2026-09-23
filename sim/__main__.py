@@ -17,17 +17,20 @@ from sim.server import DEFAULT_ENDPOINT, SimulatorServer
 
 async def _run(sim: SimulatorServer, host: str, port: int,
                modbus_host: str | None = None, modbus_port: int = 502,
-               modbus_unit: int = 1) -> None:
+               modbus_unit: int = 1, modbus_serial: str | None = None,
+               modbus_baud: int = 19200) -> None:
     await sim.init()
 
     # Stage 10: the bench rig is republished into THIS server's address space,
     # so the collector needs no change -- it already subscribes to whatever the
     # tag table lists.
     bridge = None
-    if modbus_host:
+    if modbus_host or modbus_serial:
         from sim.bridge import ModbusBridge
-        bridge = ModbusBridge(sim._server, sim.namespace_index, modbus_host,
-                              modbus_port, modbus_unit)
+        bridge = ModbusBridge(sim._server, sim.namespace_index,
+                              host=None if modbus_serial else modbus_host,
+                              port=modbus_port, unit_id=modbus_unit,
+                              serial_port=modbus_serial, baudrate=modbus_baud)
         await bridge.build_address_space()
     config = uvicorn.Config(build_app(sim), host=host, port=port,
                             log_level="warning", access_log=False)
@@ -59,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--modbus-port", type=int,
                     default=int(os.environ.get("RIG_MODBUS_PORT", "502")))
     ap.add_argument("--modbus-unit", type=int, default=1)
+    ap.add_argument("--modbus-serial", default=os.environ.get("RIG_MODBUS_SERIAL"),
+                    help="bench rig on RS-485: the USB adapter's serial port, "
+                         "e.g. /dev/tty.usbserial-1410 (Modbus RTU)")
+    ap.add_argument("--modbus-baud", type=int,
+                    default=int(os.environ.get("RIG_MODBUS_BAUD", "19200")))
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log-level", default=os.environ.get("SIM_LOG_LEVEL", "INFO"))
     args = ap.parse_args(argv)
@@ -69,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stdout,
     )
     logging.Formatter.converter = time.gmtime   # log in UTC, like the data
+    # asyncua logs every publish request at INFO: tens of lines a second that
+    # bury the simulator's own.
+    logging.getLogger("asyncua").setLevel(logging.WARNING)
 
     sim = SimulatorServer(
         endpoint=args.endpoint,
@@ -79,7 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         asyncio.run(_run(sim, args.control_host, args.control_port,
-                         args.modbus_host, args.modbus_port, args.modbus_unit))
+                         args.modbus_host, args.modbus_port, args.modbus_unit,
+                         args.modbus_serial, args.modbus_baud))
     except KeyboardInterrupt:
         logging.getLogger("sim").info("stopped")
     return 0

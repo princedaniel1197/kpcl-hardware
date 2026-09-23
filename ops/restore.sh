@@ -7,7 +7,7 @@
 # being gone.
 set -euo pipefail
 
-DOCKER="${DOCKER:-/Applications/Docker.app/Contents/Resources/bin/docker}"
+source "$(dirname "${BASH_SOURCE[0]}")/docker.sh"
 DUMP="${1:?usage: restore.sh <dump-file> [container-name]}"
 TARGET="${2:-crpms-restore-test}"
 USER_NAME="${POSTGRES_USER:-crpms}"
@@ -67,7 +67,6 @@ if [ -s "$RESTORE_LOG" ]; then
     head -20 "$RESTORE_LOG" | sed 's/^/    /'
 fi
 rm -f "$RESTORE_LOG"
-[ "$RESTORE_STATUS" -eq 0 ] || echo "WARNING: pg_restore exited $RESTORE_STATUS"
 
 finished=$(date +%s)
 echo
@@ -83,3 +82,11 @@ echo "verification (compare these against the source before trusting the backup)
 echo
 echo "the clean instance is still running on port $PORT; remove it with:"
 echo "  $DOCKER rm -f $TARGET"
+
+# A failed pg_restore is a failed restore, whatever else printed above. The
+# exit status says so, so nothing that runs this can report success.
+if [ "$RESTORE_STATUS" -ne 0 ]; then
+    echo
+    echo "RESTORE FAILED: pg_restore exited $RESTORE_STATUS"
+    exit "$RESTORE_STATUS"
+fi

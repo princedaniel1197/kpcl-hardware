@@ -23,15 +23,15 @@ ui/.vite/
 # PlatformIO / Arduino (Stage 10)
 .pio/
 firmware/.pio/
+# WiFi credentials. The repository is public; firmware/src/secrets.h.example is
+# the template.
+firmware/src/secrets.h
 
 # FAT evidence captured at run time is committed deliberately, not swept up.
 fat/evidence/tmp/
 
 # macOS
 .DS_Store
-
-# Vite build output
-ui/dist/
 
 # Backups and exports are data, not source.
 backups/

@@ -20,6 +20,8 @@ from pathlib import Path
 
 import psycopg
 
+from archive import audit
+
 DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "unit1_tags.json"
 
 FIELDS = ("description", "engineering_unit", "range_low", "range_high",
@@ -55,14 +57,7 @@ def seed(conn: psycopg.Connection, tags: list[dict], actor: str) -> tuple[int, i
     created = updated = 0
     with conn.cursor() as cur:
         for spec in tags:
-            # Built from FIELDS rather than written out, so adding a column
-            # to FIELDS cannot leave the query behind. It already did once:
-            # source_path was added to FIELDS and the SELECT still returned the
-            # old nine columns, which failed with an index error rather than a
-            # useful message.
-            cur.execute(
-                "SELECT id, " + ", ".join(FIELDS) + " FROM tag WHERE name = %s",
-                (spec["name"],))
+            cur.execute("SELECT id FROM tag WHERE name = %s", (spec["name"],))
             existing = cur.fetchone()
 
             if existing is None:
@@ -83,19 +78,16 @@ def seed(conn: psycopg.Connection, tags: list[dict], actor: str) -> tuple[int, i
                 created += 1
                 continue
 
-            tag_id, *current = existing
-            for index, field in enumerate(FIELDS):
-                want, have = spec.get(field), current[index]
-                if want is None or str(want) == str(have):
+            tag_id = existing[0]
+            for field in FIELDS:
+                want = spec.get(field)
+                if want is None:
                     continue
-                cur.execute(f"UPDATE tag SET {field} = %s WHERE id = %s",
-                            (want, tag_id))
-                cur.execute(
-                    "INSERT INTO audit_log (actor, entity, entity_id, field,"
-                    " old_value, new_value, reason) VALUES"
-                    " (%s,'tag',%s,%s,%s,%s,'seeded from config')",
-                    (actor, str(tag_id), field, str(have), str(want)))
-                updated += 1
+                # Compared as numbers where both are numbers: comparing the
+                # strings "1" and "1.0" once wrote an audit row, and an UPDATE,
+                # for every digital tag on every seed.
+                updated += audit.change(cur, "tag", tag_id, field, want,
+                                        actor=actor, reason="seeded from config")
     conn.commit()
     return created, updated
 

@@ -47,6 +47,14 @@ def render() -> str:
         lines.append(
             f"| {t.ref} | {t.clause} | {t.title} | {t.condition} | {t.method} | "
             f"**{t.criterion}** | {t.kind} | | | |")
+    lines += ["", "## What would make each automated test fail", "",
+              "Every automated criterion must be one the system could fail. "
+              "A test with no answer here passes because of how it was "
+              "written, not because of what the system does.", "",
+              "| Ref | Test | Fails if |", "|---|---|---|"]
+    for t in PLAN:
+        if t.kind == AUTOMATED:
+            lines.append(f"| {t.ref} | {t.title} | {t.fails_if or '**none stated**'} |")
     lines += ["", "## Notes", ""]
     for t in PLAN:
         if t.note:
