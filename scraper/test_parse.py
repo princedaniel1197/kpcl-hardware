@@ -139,3 +139,61 @@ def test_system_values(html: str) -> None:
 def test_naive_server_ts_is_rejected(html: str) -> None:
     with pytest.raises(ValueError):
         parse(html, dt.datetime(2026, 9, 22, 15, 52, 32))
+
+
+# --- per-unit generation -----------------------------------------------------
+
+EXPECTED_UNITS = {
+    "RTPS": [0.0] * 8,
+    "BTPS": [373.0, 371.0, 582.0],
+    "YTPS": [590.0, 487.0],
+    "SHARAVATHI": [0.0, 25.0, 80.0, 25.0, 24.0, 25.0, 30.0, 25.0, 39.0, 84.0],
+    "VARAHI": [14.0, 13.0, 14.0, 15.0],
+    "ALMATTI": [0.0, 31.0, 42.0, 48.0, 46.0, 48.0],
+}
+
+
+def test_every_unit_is_read(html: str) -> None:
+    """33 units across the six stations, each by its UNIT n column."""
+    page = parse(html, FETCHED_AT)
+    got: dict[str, list[float | None]] = {}
+    for u in page.units:
+        got.setdefault(u.station, []).append(u.value)
+        assert u.quality == QUALITY_GOOD
+    assert got == EXPECTED_UNITS
+    assert len(page.units) == 33
+    assert [u.unit for u in page.units if u.station == "SHARAVATHI"] == list(range(1, 11))
+
+
+def test_ytps_units_are_not_silently_missing(html: str) -> None:
+    page = parse(html, FETCHED_AT)
+    assert [(u.unit, u.value) for u in page.units if u.station == "YTPS"] == [
+        (1, 590.0), (2, 487.0)]
+
+
+def test_missing_unit_element_is_bad_not_zero(html: str) -> None:
+    broken = html.replace('id="lblbtp2"', 'id="lblbtp2_gone"')
+    page = parse(broken, FETCHED_AT)
+    u2 = next(u for u in page.units if u.station == "BTPS" and u.unit == 2)
+    assert u2.value is None
+    assert u2.quality == QUALITY_MISSING_ELEMENT
+    assert "lblbtp2" in u2.reason and "BTPS unit 2" in u2.reason
+    # the station total and the other units are unaffected
+    assert next(s for s in page.stations if s.station == "BTPS").quality == QUALITY_GOOD
+    assert all(u.is_good for u in page.units if not (u.station == "BTPS" and u.unit == 2))
+
+
+def test_non_numeric_unit_is_bad_decoding(html: str) -> None:
+    broken = html.replace('<span id="ytp1">590</span>', '<span id="ytp1">--</span>')
+    page = parse(broken, FETCHED_AT)
+    u1 = next(u for u in page.units if u.station == "YTPS" and u.unit == 1)
+    assert u1.value is None
+    assert u1.quality == QUALITY_UNPARSEABLE
+
+
+def test_unit_zero_is_good(html: str) -> None:
+    """RTPS reads 0 MW on every unit of this page. Those are Good zeros."""
+    page = parse(html, FETCHED_AT)
+    rtps = [u for u in page.units if u.station == "RTPS"]
+    assert all(u.value == 0.0 and u.quality == QUALITY_GOOD and u.reason is None
+               for u in rtps)

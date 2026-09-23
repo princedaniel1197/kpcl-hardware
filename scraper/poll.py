@@ -97,7 +97,7 @@ async def poll_once(
     """One tick: fetch, parse, store. Retries until `deadline` (a monotonic
     clock reading), then gives up so the next tick is not delayed.
 
-    Returns the number of generation rows inserted.
+    Returns the number of generation rows inserted, stations and units.
     """
     attempt_ts = dt.datetime.now(dt.timezone.utc)
     started = time.monotonic()
@@ -133,7 +133,7 @@ async def poll_once(
             return 0
 
         try:
-            rows = await store.write_reading(archive, page)
+            written = await store.write_reading(archive, page)
         except psycopg.Error as exc:
             # write_reading has already discarded the broken connection;
             # log_attempt is best-effort and reconnects if it can.
@@ -148,18 +148,24 @@ async def poll_once(
         duration = int((time.monotonic() - started) * 1000)
         await store.log_attempt(
             archive, attempt_ts=attempt_ts, outcome="ok", http_status=status,
-            rows_written=rows, page_source_ts=page.source_ts,
+            rows_written=written.total, page_source_ts=page.source_ts,
             duration_ms=duration,
             detail=f"page age {page.page_age.total_seconds():.0f}s")
 
         bad = [s for s in page.stations if not s.is_good]
+        bad_units = [u for u in page.units if not u.is_good]
         log.info(
-            "ok: page %s (age %.0fs), %d new rows, %d/%d stations good%s",
-            page.raw_page_timestamp, page.page_age.total_seconds(), rows,
+            "ok: page %s (age %.0fs), %d new station rows, %d new unit rows, "
+            "%d/%d stations good, %d/%d units good%s",
+            page.raw_page_timestamp, page.page_age.total_seconds(),
+            written.stations, written.units,
             len(page.stations) - len(bad), len(page.stations),
-            "" if not bad else "; BAD: " + ", ".join(f"{s.station} ({s.reason})" for s in bad),
+            len(page.units) - len(bad_units), len(page.units),
+            "" if not (bad or bad_units) else "; BAD: " + ", ".join(
+                [f"{s.station} ({s.reason})" for s in bad]
+                + [f"{u.station} U{u.unit} ({u.reason})" for u in bad_units]),
         )
-        return rows
+        return written.total
 
     duration = int((time.monotonic() - started) * 1000)
     await store.log_attempt(
@@ -179,11 +185,11 @@ async def report_daily(archive: store.Archive) -> None:
         log.warning("daily report unavailable: %s", exc)
         return
     for row in rows:
-        ist_date, rows, good, readings, first, last = row
+        ist_date, count, good, readings, first, last, unit_count, unit_good = row
         log.info(
-            "DAILY %s: %d rows (%d good) from %d distinct page timestamps, "
-            "%s to %s",
-            ist_date, rows, good, readings, first, last,
+            "DAILY %s: %d station rows (%d good), %d unit rows (%d good), "
+            "from %d distinct page timestamps, %s to %s",
+            ist_date, count, good, unit_count, unit_good, readings, first, last,
         )
 
 

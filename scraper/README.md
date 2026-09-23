@@ -1,8 +1,12 @@
 # scraper — Karnataka SLDC live generation recorder
 
 Polls [kptclsldc.in/StateGen.aspx](https://kptclsldc.in/StateGen.aspx) every 60
-seconds and records per-station generation for six KPCL stations, plus system
-frequency, into the project's TimescaleDB instance.
+seconds and records per-station and per-unit generation for six KPCL stations
+(33 units), plus system frequency, into the project's TimescaleDB instance.
+
+Per-unit recording began at 02:47 UTC on 23 September 2026. Before that the
+recorder read only the station totals and discarded the unit figures the page
+published alongside them; those minutes are not recoverable.
 
 This is **not a stage of the build plan**. No staged work depends on it. It
 shares the database and the project's conventions and nothing else.
@@ -73,17 +77,17 @@ answer is to ask KPTCL for a feed, not to disguise this one.
 
 ## Station ids, and the trap in them
 
-The page renders each station's total into a span with a fixed id. The ids are
-**not** uniformly named:
+The page renders each station's total, and each unit (`UNIT 1` to `UNIT 10`
+columns), into spans with fixed ids. The ids are **not** uniformly named:
 
 | Station | Element id | |
 |---|---|---|
-| RTPS | `lblrtptot` | |
-| BTPS | `lblbtptot` | |
-| YTPS | `ytptot` | **no `lbl` prefix** |
-| Sharavathi | `lblshvytot` | |
-| Varahi | `lblvrhtot` | |
-| Almatti | `lblalmttot` | |
+| RTPS | `lblrtptot`, `lblrtp1`–`8` | |
+| BTPS | `lblbtptot`, `lblbtp1`–`3` | |
+| YTPS | `ytptot`, `ytp1`–`2` | **no `lbl` prefix** |
+| Sharavathi | `lblshvytot`, `lblshvty1`–`10` | |
+| Varahi | `lblvrhtot`, `lblvrh1`–`4` | |
+| Almatti | `lblalmttot`, `lblalmt1`–`6` | |
 
 A scraper that assumes the `lbl` prefix records nothing for Yermarus and never
 says so. `test_ytps_is_not_silently_missing` exists to keep that fixed.
@@ -93,15 +97,25 @@ says so. `test_ytps_is_not_silently_missing` exists to keep that fixed.
 | Table | Key | Holds |
 |---|---|---|
 | `sldc_generation` | `(station, source_ts)` | per-station MW, quality, reason |
+| `sldc_unit_generation` | `(station, unit, source_ts)` | per-unit MW, quality, reason |
+| `sldc_consistency_tolerance` | `(station)` | how far a unit sum may differ from the total |
 | `sldc_system` | `(source_ts)` | frequency, state and total generation |
 | `sldc_poll_log` | `(attempt_ts)` | every poll attempt and its outcome |
 
 Frequency lives in `sldc_system` rather than on six identical station rows: it
 is a property of the grid, not of any station.
 
-Two views: `sldc_generation_decoded` (StatusCode decoded to Good/Bad/Uncertain,
-with the numeric code kept as the stored truth) and `sldc_daily_rows` (per-day
-counts — the liveness figure).
+Views: `sldc_generation_decoded` (StatusCode decoded to Good/Bad/Uncertain,
+with the numeric code kept as the stored truth), `sldc_daily_rows` and
+`sldc_unit_daily_rows` (per-day counts — the liveness figures).
+
+`sldc_unit_consistency` compares every station total with the sum of its units,
+per page timestamp, and gives a verdict: `consistent`, `inconsistent`, or
+`incomplete` when a unit or the total is not Good. An unreadable unit is never
+counted as 0 MW to make the sum work. `sldc_unit_consistency_daily` rolls that
+up per station per IST day. It is a cross-tag consistency check on real data:
+on the captured page RTPS published a total of 1190 MW with all eight units at
+0 MW, and the check says so.
 
 `sldc_poll_log` is what makes "the recorder is alive but the site is down"
 distinguishable from "the recorder is dead". Both look like an absence of rows
@@ -134,11 +148,17 @@ that needs an administrator, so it is a deliberate choice rather than a default.
 ```
 
 The parser tests run against a real captured page in `fixtures/`, so they need
-no network and a failure is never the site's fault. They cover the six stations,
+no network and a failure is never the site's fault. They cover the six stations
+and 33 units,
 the IST→UTC conversion, refusal when the page timestamp is missing or
 unparseable, missing/blank/non-numeric station values each producing their own
 Bad status with a reason, and — the one that matters — a genuine 0 MW staying
 Good and distinguishable from a failed read.
+
+`test_store.py` writes the captured page to the database (under a 2001
+timestamp, then deletes it) and checks the unit rows, idempotent re-recording,
+the consistency verdicts, and that a Bad unit makes the check `incomplete`
+rather than a zero.
 
 ## Dependencies
 

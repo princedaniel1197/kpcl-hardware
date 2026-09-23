@@ -1,6 +1,6 @@
 """Writing SLDC readings to TimescaleDB.
 
-Idempotency is structural. Both inserts are ON CONFLICT DO NOTHING against a
+Idempotency is structural. Every insert are ON CONFLICT DO NOTHING against a
 primary key that includes source_ts, so re-recording a page we already hold
 cannot duplicate a row. That matters here more than it might look: the page
 carries a one-minute timestamp and we poll every sixty seconds, so the same
@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import os
+from dataclasses import dataclass
 
 import psycopg
 
@@ -69,9 +70,21 @@ class Archive:
         await self.discard()
 
 
-async def write_reading(archive: "Archive", page: PageReading) -> int:
-    """Write one page reading. Returns the number of generation rows inserted
-    (rows already present are not counted, and are not an error).
+@dataclass(frozen=True)
+class Written:
+    """Rows inserted by one page reading. Rows already present are not counted
+    and are not an error."""
+    stations: int
+    units: int
+
+    @property
+    def total(self) -> int:
+        return self.stations + self.units
+
+
+async def write_reading(archive: "Archive", page: PageReading) -> Written:
+    """Write one page reading: station totals, per-unit generation and the
+    system values, in one transaction.
 
     Raises psycopg.Error on failure, having discarded the connection so the
     next attempt reconnects rather than reusing a dead one.
@@ -92,7 +105,23 @@ async def write_reading(archive: "Archive", page: PageReading) -> int:
                     for s in page.stations
                 ],
             )
-            inserted = cur.rowcount
+            stations_inserted = max(cur.rowcount, 0)
+
+            await cur.executemany(
+                """
+                INSERT INTO sldc_unit_generation
+                    (station, unit, source_ts, server_ts, generation_mw,
+                     quality, reason)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (station, unit, source_ts) DO NOTHING
+                """,
+                [
+                    (u.station, u.unit, page.source_ts, page.server_ts,
+                     u.value, u.quality, u.reason)
+                    for u in page.units
+                ],
+            )
+            units_inserted = max(cur.rowcount, 0)
 
             await cur.execute(
                 """
@@ -111,7 +140,7 @@ async def write_reading(archive: "Archive", page: PageReading) -> int:
     except psycopg.Error:
         await archive.discard()
         raise
-    return max(inserted, 0)
+    return Written(stations_inserted, units_inserted)
 
 
 async def log_attempt(
@@ -153,14 +182,20 @@ async def log_attempt(
 
 
 async def daily_counts(archive: "Archive", days: int = 1) -> list[tuple]:
-    """Per-day row counts, newest first — the liveness figure."""
+    """Per-day row counts, newest first — the liveness figure. One row per IST
+    day: station rows, good station rows, distinct page timestamps, first and
+    last reading, then unit rows and good unit rows (0 before per-unit
+    recording began)."""
     conn = await archive.connection()
     async with conn.cursor() as cur:
         await cur.execute(
             """
-            SELECT ist_date, rows_written, good_rows, distinct_readings,
-                   first_reading, last_reading
-            FROM sldc_daily_rows
+            SELECT s.ist_date, s.rows_written, s.good_rows, s.distinct_readings,
+                   s.first_reading, s.last_reading,
+                   coalesce(u.rows_written, 0), coalesce(u.good_rows, 0)
+            FROM sldc_daily_rows s
+            LEFT JOIN sldc_unit_daily_rows u USING (ist_date)
+            ORDER BY s.ist_date DESC
             LIMIT %s
             """,
             (days,),

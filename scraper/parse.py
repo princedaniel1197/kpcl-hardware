@@ -85,6 +85,14 @@ class StationReading(Reading):
 
 
 @dataclass(frozen=True)
+class UnitReading(Reading):
+    """One unit's generation. `unit` is the unit number as the page's column
+    header prints it (UNIT 1, UNIT 2, ...), which is the element's position."""
+    station: str = ""
+    unit: int = 0
+
+
+@dataclass(frozen=True)
 class PageReading:
     """Everything one fetch of the page yielded."""
 
@@ -95,6 +103,7 @@ class PageReading:
     state_gen: Reading
     total_gen: Reading
     stations: tuple[StationReading, ...]
+    units: tuple[UnitReading, ...]
 
     @property
     def page_age(self) -> dt.timedelta:
@@ -165,6 +174,21 @@ def parse(html: str, server_ts: dt.datetime) -> PageReading:
         for spec in st.STATIONS
     )
 
+    # Per-unit generation. The tender is a per-unit system, and this is the
+    # per-unit figure. Each unit goes through exactly the same path as a station
+    # total: absent, blank or non-numeric is Bad with a reason, never zero.
+    unit_readings = tuple(
+        UnitReading(
+            value=(r := _number(text, element_id, f"{spec.code} unit {n}")).value,
+            quality=r.quality,
+            reason=r.reason,
+            station=spec.code,
+            unit=n,
+        )
+        for spec in st.STATIONS
+        for n, element_id in enumerate(spec.unit_ids, start=1)
+    )
+
     return PageReading(
         source_ts=source_ts,
         server_ts=server_ts.astimezone(dt.timezone.utc),
@@ -173,4 +197,5 @@ def parse(html: str, server_ts: dt.datetime) -> PageReading:
         state_gen=_number(text, st.STATE_GEN_ID, "state generation"),
         total_gen=_number(text, st.TOTAL_GEN_ID, "total generation"),
         stations=station_readings,
+        units=unit_readings,
     )

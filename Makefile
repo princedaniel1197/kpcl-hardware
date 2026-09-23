@@ -319,10 +319,15 @@ access:
 # Karnataka SLDC generation recorder (scraper/). Not a build-plan stage.
 # ---------------------------------------------------------------------------
 
+# Each file is idempotent (IF NOT EXISTS / OR REPLACE / ON CONFLICT), applied in
+# name order.
 scraper-migrate:
 	@test -n "$(DOCKER)" || { echo "docker is not installed — run 'make doctor'"; exit 1; }
-	$(DOCKER) exec -i $(DB_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) \
-	  -v ON_ERROR_STOP=1 < scraper/migrations/001_sldc_generation.sql
+	@for f in scraper/migrations/*.sql; do \
+	  echo "applying $$f"; \
+	  $(DOCKER) exec -i $(DB_CONTAINER) psql -q -U $(POSTGRES_USER) -d $(POSTGRES_DB) \
+	    -v ON_ERROR_STOP=1 < $$f || exit 1; \
+	done
 
 scraper-once:
 	@test -x $(VPY) || { echo "no virtualenv — run 'make install' first."; exit 1; }
