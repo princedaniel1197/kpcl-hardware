@@ -179,7 +179,9 @@ The steps in "To close this record" change: copy `src/secrets.h.example` to
 `src/secrets.h` instead of editing `main.cpp`; `pio run -e tcp -t upload`; then
 **read the two probe ROM addresses from the serial monitor into
 `src/rig_config.h`** and flash again — until then both temperatures are
-invalid by design. Confirm the serial monitor prints a *plausible* ACS712 zero.
+invalid by design. Confirm the serial monitor prints a *plausible* ACS712 zero,
+that no relay clicks at power-on or reset, and that each relay releases when
+commanded off (if one does not, set `RELAY_OPEN_DRAIN`; see the register map).
 
 `sim/test_bridge.py`: 24 tests, including the path end to end through the
 stand-in over real Modbus TCP into a real OPC UA server.

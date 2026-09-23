@@ -17,6 +17,14 @@
 // to be active-high, change this and nothing else.
 static const bool RELAY_ACTIVE_LOW = true;
 
+// A 5 V module's IN pin, driven HIGH by a 3.3 V ESP32, may leave ~1.7 V across
+// the module's opto-coupler LED -- enough, on some modules, to keep the relay
+// energised. If a relay will not release on the bench, set this: the pin then
+// switches between driving LOW (energise) and releasing to high impedance
+// (de-energise), and the module's own pull-up holds it off. Not verified on the
+// hardware on order; it is a setting because only the bench can decide it.
+static const bool RELAY_OPEN_DRAIN = false;
+
 // ---------------------------------------------------------------------------
 // DS18B20 probes, identified by ROM address
 // ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 
-import pytest
 from asyncua import ua
 
 from engine import quality as q

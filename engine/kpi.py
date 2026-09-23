@@ -338,7 +338,6 @@ def load_definitions(conn: psycopg.Connection, *, name: str | None = None,
 def run_once(conn: psycopg.Connection, *, element_template: str = "GeneratingUnit",
              at: dt.datetime | None = None) -> list[KpiResult]:
     """Compute every current KPI for every element of a template."""
-    from engine import assets
     with conn.cursor() as cur:
         cur.execute(
             "WITH RECURSIVE family AS ("

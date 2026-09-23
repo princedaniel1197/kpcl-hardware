@@ -98,6 +98,17 @@ with ~0.46 A flowing; and every ON command switched a relay OFF. Now:
 This assumes every fan is behind a relay. A fan wired straight to the supply
 would be running during the zero, and the zero would be wrong.
 
+Two things only the bench can settle, and the firmware makes each a setting
+rather than a guess:
+
+- **No relay should click at power-on or reset.** The level is written before
+  and after each pin becomes an output, and the modules' pull-ups hold them off
+  until then; confirm it.
+- **A relay must release when commanded off.** A 3.3 V HIGH on a 5 V module's IN
+  can leave enough across its opto-coupler to hold some modules on. If one will
+  not release, set `RELAY_OPEN_DRAIN` in `rig_config.h`: off then means the pin
+  lets go rather than drives HIGH.
+
 ## The DS18B20 probes are identified by ROM address
 
 Both probes share one OneWire wire, and each is read by its 64-bit ROM address,

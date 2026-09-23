@@ -24,7 +24,7 @@ import os
 import psycopg
 from fastapi import FastAPI, Header, HTTPException, Request
 
-from collector.omf import SAMPLE_TYPE_ID, OmfError, validate
+from collector.omf import OmfError, validate
 
 log = logging.getLogger("omf.receiver")
 

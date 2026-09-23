@@ -48,7 +48,7 @@ from collector.events import EventStream
 from collector.health import HealthPublisher
 from collector.pipeline import Pipeline
 from collector.session import ReadOnlySession
-from collector.sink import ArchiveSink, SinkUnavailable
+from collector.sink import ArchiveSink
 
 log = logging.getLogger("outage")
 

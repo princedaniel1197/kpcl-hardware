@@ -15,9 +15,7 @@ import argparse
 import datetime as dt
 import json
 import os
-import signal
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -68,7 +66,7 @@ def start_simulator(startup_seconds: float) -> subprocess.Popen:
 def run_startup(startup_seconds: float, label: str) -> None:
     print(f"\n  {label}: cold start-up over {startup_seconds:.0f}s")
     stop_simulator()
-    process = start_simulator(startup_seconds)
+    start_simulator(startup_seconds)
     deadline = time.monotonic() + startup_seconds * 2 + 120
     last = None
     while time.monotonic() < deadline:

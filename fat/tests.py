@@ -21,7 +21,6 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import psycopg
 
 ROOT = Path(__file__).parent.parent
 DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms")

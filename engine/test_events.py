@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 
-import pytest
 
 from engine import events
-from engine.events import Frame, Milestone, MilestoneSpec, Trigger, _Debouncer
+from engine.events import Frame, Milestone, Trigger, _Debouncer
 
 T0 = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)
 GOOD = 0

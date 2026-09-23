@@ -342,12 +342,14 @@ ModbusMessage onWriteCoil(ModbusMessage request) {
 
 void setup() {
   // Relays first, before anything else can take time: de-energised. The level
-  // is latched before the pin becomes an output, so it never drives the
-  // energising level even for an instant. (Between reset and here the pins are
-  // inputs; the modules' own pull-ups hold an active-low relay off.)
+  // is written before the pin becomes an output as well as after, so that the
+  // output starts at the de-energised level. (Between reset and here the pins
+  // are inputs; the modules' own pull-ups hold an active-low relay off.) Both
+  // are to be confirmed on the bench: no relay should click at power-on or
+  // reset.
   for (int pin : {PIN_RELAY_1, PIN_RELAY_2}) {
     relayWrite(pin, false);
-    pinMode(pin, OUTPUT);
+    pinMode(pin, RELAY_OPEN_DRAIN ? OUTPUT_OPEN_DRAIN : OUTPUT);
     relayWrite(pin, false);
   }
   lastRelayOff = millis();
