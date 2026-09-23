@@ -91,7 +91,7 @@ starting every fan before WiFi or any command; it then zeroed the current sensor
 with ~0.46 A flowing; and every ON command switched a relay OFF. Now:
 
 - polarity is one setting, `RELAY_ACTIVE_LOW` in `src/rig_config.h`;
-- at boot the de-energised level is latched **before** the pins become outputs;
+- at boot the de-energised level is written **before** the pins become outputs, and again after (to be confirmed on the bench, below);
 - the current sensor is zeroed only after both relays are de-energised and
   settled, and can be re-zeroed on the bench through coil 2.
 
