@@ -57,7 +57,7 @@ make seed-tags seed-assets seed-quality seed-kpis seed-alerts
 
 make sim             # the OPC UA DCS simulator
 make collector       # acquisition
-make engine          # KPIs, quality rules and event frames, continuously
+make engine          # KPIs, quality rules, event frames, alerts, capacity
 make api             # FastAPI on :8000 — every call needs a token
 make token           # a read-only token for the UI, shown once
 make ui              # the visualisation on :5173

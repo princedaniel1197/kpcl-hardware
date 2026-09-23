@@ -59,7 +59,7 @@ help:
 	@echo ""
 	@echo "  sim         run the OPC UA DCS simulator        (Stage 1)"
 	@echo "  collector   run the acquisition collector       (Stage 3)"
-	@echo "  engine      run KPIs, quality rules, event frames (Stages 6-8)"
+	@echo "  engine      run KPIs, quality, event frames, alerts, capacity"
 	@echo "  api         run the FastAPI service             (Stage 12)"
 	@echo "  token       create a read-only API token for the UI (§509)"
 	@echo "  ui          run the React visualisation         (Stage 12)"
