@@ -124,6 +124,25 @@ first thing to do if one becomes available.
 
 `pytest collector/test_omf.py -q` → **22 passed**.
 
+## Addendum — 23 September 2026
+
+**This demonstration wrote synthetic data into a plant tag.** Its two samples —
+123.45 and a Bad reading one second later — were sent under `U1_AUX_POWER`, so a
+123.45 MW auxiliary load sat in Unit 1's real history, where a trend, an export
+or the KPI engine would take it for plant data. Three pairs were found (one from
+the 22 September run, two from re-runs on 23 September) and removed, each
+removal recorded in `audit_log`; no stored KPI had used them. The demonstration
+now creates and uses a tag of its own, `OMF_DEMO`, described as synthetic.
+
+It also refuses to start if something already answers on its receiver ports:
+on 23 September a receiver left running since the day before — old code —
+answered in place of the one the run started, and its counts were reported as
+the run's. Re-run with fresh receivers: 9 of 9 checks pass.
+
+The receiver now refuses a value whose `ServerTime` or `Quality` is omitted —
+OMF would default Quality to 0, which is Good — and stores an explicit null
+ServerTime as NULL rather than copying SourceTime into it.
+
 ## Signature
 
 | Role | Name | Date |

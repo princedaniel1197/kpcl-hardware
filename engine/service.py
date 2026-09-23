@@ -1,4 +1,5 @@
-"""The engine, running: KPIs, quality rules and event frames, continuously.
+"""The engine, running: KPIs, quality rules, event frames, alerts and capacity,
+continuously.
 
 Until 23 September 2026 nothing ran these. KPIs, quality verdicts and event
 frames were produced only while a demonstration script was running, so the
@@ -16,7 +17,12 @@ Each cycle:
   * event-frame detection over a window reaching back one template
     max_duration, every EVENTS_INTERVAL_S -- detection is batch over the
     archive and idempotent on (element, template, start), so re-running it
-    completes an open frame rather than duplicating it.
+    completes an open frame rather than duplicating it;
+  * every alert rule, every ALERTS_INTERVAL_S (§507), after the verdicts above
+    it may depend on;
+  * a capacity sample, every CAPACITY_INTERVAL_S (§344), so the growth rate and
+    the disk alert are about now rather than about the last time someone ran
+    `make capacity`.
 
 WHICH ELEMENTS A KPI APPLIES TO is derived, not configured: the lowest elements
 whose subtree holds every attribute the definition needs. Heat rate needs
@@ -49,6 +55,7 @@ from pathlib import Path
 import psycopg
 
 from engine import events, kpi, quality
+from ops import alerts, capacity
 
 log = logging.getLogger("engine")
 
@@ -56,6 +63,8 @@ DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms
 TEMPLATES = Path(__file__).parent.parent / "config" / "event_templates.json"
 QUALITY_INTERVAL_S = float(os.environ.get("ENGINE_QUALITY_INTERVAL_S", "10"))
 EVENTS_INTERVAL_S = float(os.environ.get("ENGINE_EVENTS_INTERVAL_S", "30"))
+ALERTS_INTERVAL_S = float(os.environ.get("ENGINE_ALERTS_INTERVAL_S", "30"))
+CAPACITY_INTERVAL_S = float(os.environ.get("ENGINE_CAPACITY_INTERVAL_S", "300"))
 TICK_S = 1.0
 CLASS = ("Good", "Uncertain", "Bad", "Reserved")
 
@@ -100,11 +109,14 @@ class Engine:
         self._kpi_due: dict[int, float] = {}
         self._quality_due = 0.0
         self._events_due = 0.0
+        self._alerts_due = 0.0
+        self._capacity_due = 0.0
         self._events_ran: dict[tuple[str, int], dt.datetime] = {}
         self._kpi_state: dict[tuple[str, int], tuple[int, str | None]] = {}
         self.templates = events.load_templates(TEMPLATES)
         self.stats = {"kpi_results": 0, "quality_runs": 0, "frames_stored": 0,
-                      "db_errors": 0}
+                      "alerts_raised": 0, "alerts_cleared": 0,
+                      "capacity_samples": 0, "db_errors": 0}
 
     def connection(self) -> psycopg.Connection:
         if self._conn is None or self._conn.closed:
@@ -191,18 +203,44 @@ class Engine:
                     self.stats["frames_stored"] += 1
                 self._events_ran[(template.name, element_id)] = until
 
+    def run_alerts(self, now: float) -> None:
+        if now < self._alerts_due:
+            return
+        self._alerts_due = now + ALERTS_INTERVAL_S
+        counts = alerts.run_once(self.connection())
+        self.stats["alerts_raised"] += counts["raised"]
+        self.stats["alerts_cleared"] += counts["cleared"]
+        if counts["raised"] or counts["cleared"]:
+            log.info("alerts: %d raised, %d cleared", counts["raised"],
+                     counts["cleared"])
+
+    def run_capacity(self, now: float) -> None:
+        if now < self._capacity_due:
+            return
+        self._capacity_due = now + CAPACITY_INTERVAL_S
+        capacity.collect(self.connection())
+        self.stats["capacity_samples"] += 1
+
     # -- the loop ------------------------------------------------------------
 
     def run(self, stop) -> None:
         log.info("engine running: KPIs at their own frequency, quality every "
-                 "%.0f s, event frames every %.0f s", QUALITY_INTERVAL_S,
-                 EVENTS_INTERVAL_S)
+                 "%.0f s, event frames every %.0f s, alerts every %.0f s, "
+                 "capacity every %.0f s", QUALITY_INTERVAL_S, EVENTS_INTERVAL_S,
+                 ALERTS_INTERVAL_S, CAPACITY_INTERVAL_S)
         last_error: str | None = None
         while not stop():
             now = time.monotonic()
-            for job in (self.run_kpis, self.run_quality, self.run_events):
+            for job in (self.run_kpis, self.run_quality, self.run_events,
+                        self.run_alerts, self.run_capacity):
                 try:
                     job(now)
+                    # End whatever read transaction the job left open. Views
+                    # such as collector_leader use now(), which is the start of
+                    # the transaction: a connection left idle in one would judge
+                    # "alive" against a clock that had stopped.
+                    if self._conn is not None and not self._conn.closed:
+                        self._conn.commit()
                     last_error = None
                 except psycopg.Error as exc:
                     # The archive being away stops the engine computing; it must

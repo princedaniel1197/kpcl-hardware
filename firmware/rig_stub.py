@@ -186,6 +186,7 @@ def main() -> int:
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
+    logging.Formatter.converter = __import__("time").gmtime   # UTC, like the data
     asyncio.run(run(args.host, args.port, unplug_after=args.unplug_after))
     return 0
 

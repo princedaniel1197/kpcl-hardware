@@ -185,8 +185,10 @@ make engine        # python -m engine
 ```
 
 Nothing above computes anything on its own. Until 23 September KPIs, quality
-verdicts and event frames were produced only while a demonstration script ran,
-so the dashboard showed whatever the last one had left. `engine/service.py`
+verdicts, event frames, alert evaluations and capacity samples were produced
+only while a demonstration script or a one-off command ran, so the dashboard
+showed whatever the last one had left and the disk alert watched a figure from
+whenever `make capacity` was last typed. `engine/service.py`
 runs them continuously:
 
 | | How often | Over |
@@ -194,6 +196,8 @@ runs them continuously:
 | every current KPI definition | its own `calculation_freq_ms` | every element it applies to |
 | every quality rule | every 10 s | every acquired tag, last 5 minutes |
 | event-frame detection | every 30 s | the last template duration on the first pass, then incrementally; idempotent on (element, template, start) |
+| every alert rule (§507) | every 30 s | `ops/alerts.py` |
+| a capacity sample (§344) | every 5 min | `ops/capacity.py` |
 
 **Which elements a KPI or an event template applies to is derived** from the
 asset model: the lowest elements whose subtree holds every attribute it needs.

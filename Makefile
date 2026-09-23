@@ -89,6 +89,7 @@ help:
 	@echo "  backup-install     hourly backup under launchd (RPO 1 hour)"
 	@echo "  capacity           central capacity report          (§344)"
 	@echo "  alerts             evaluate alert rules once        (§507)"
+	@echo "                     (make engine evaluates them continuously)"
 	@echo "  export             machine-readable export          (§503)"
 	@echo "  access             list principals and roles        (§509)"
 	@echo "  outage-test        Stage 3 acceptance test (stops the database)"

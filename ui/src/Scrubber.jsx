@@ -19,10 +19,12 @@ export default function Scrubber({ tags }) {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(5)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
   const raf = useRef(null)
 
   const load = async () => {
     setLoading(true)
+    setError(null)
     try {
       const end = new Date()
       const start = new Date(end.getTime() - window * 60000)
@@ -40,6 +42,12 @@ export default function Scrubber({ tags }) {
       } else {
         setCursor(0)
       }
+    } catch (e) {
+      // A station-scoped principal may not see every tag asked for (the
+      // collector's own health belongs to no station). Say so; do not show an
+      // empty replay as if nothing had happened.
+      setData(null)
+      setError(String(e.message ?? e))
     } finally { setLoading(false) }
   }
 
@@ -110,6 +118,11 @@ export default function Scrubber({ tags }) {
         </span>
       </div>
 
+      {error && (
+        <div style={{ fontSize: 11, color: isa.bad, marginBottom: 6 }}>
+          replay unavailable: {error}
+        </div>
+      )}
       <input type="range" min="0" max="1" step="0.0005" value={cursor}
              onChange={(e) => { setPlaying(false); setCursor(Number(e.target.value)) }}
              style={{ width: '100%' }} />

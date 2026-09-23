@@ -62,7 +62,7 @@ def growth(conn: psycopg.Connection, metric: str, over_days: float = 1.0
     with conn.cursor() as cur:
         cur.execute(
             "SELECT ts, value FROM capacity_sample WHERE metric = %s"
-            " AND ts > now() - (%s || ' days')::interval ORDER BY ts",
+            " AND ts > clock_timestamp() - (%s || ' days')::interval ORDER BY ts",
             (metric, str(over_days)))
         rows = cur.fetchall()
     if len(rows) < 2:

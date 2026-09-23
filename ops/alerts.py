@@ -72,15 +72,31 @@ def evaluate(conn: psycopg.Connection, rule: Rule,
     since = now - dt.timedelta(seconds=max(rule.for_seconds, 1))
 
     if rule.subject_kind == "tag":
+        # Acquisition reports by exception: a tag that goes Bad and stays Bad
+        # sends nothing more until its max-time heartbeat. So the state that
+        # holds across the window starts with the last sample BEFORE it, not
+        # only the ones inside it. Looking only inside the window, an alert on a
+        # tag that stayed Bad raised and cleared on alternate cycles, depending
+        # on whether a heartbeat happened to land in it.
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT s.value, s.quality, s.source_ts FROM sample s"
-                " JOIN tag t ON t.id = s.tag_id WHERE t.name = %s"
-                " AND s.source_ts >= %s ORDER BY s.source_ts", (rule.subject, since))
-            rows = cur.fetchall()
+                "(SELECT s.value, s.quality, s.source_ts FROM sample s"
+                "  JOIN tag t ON t.id = s.tag_id WHERE t.name = %s"
+                "  AND s.source_ts < %s ORDER BY s.source_ts DESC LIMIT 1)"
+                " UNION ALL"
+                " (SELECT s.value, s.quality, s.source_ts FROM sample s"
+                "  JOIN tag t ON t.id = s.tag_id WHERE t.name = %s"
+                "  AND s.source_ts >= %s ORDER BY s.source_ts)",
+                (rule.subject, since, rule.subject, since))
+            rows = sorted(cur.fetchall(), key=lambda r: r[2])
+        in_window = [r for r in rows if r[2] >= since]
+        if rule.condition == "stale":
+            # Stale is about arrival, so only the window counts.
+            if not in_window:
+                return (True, f"{rule.subject}: no sample for "
+                        f"{rule.for_seconds:.0f}s", None, None)
+            return False, "", in_window[-1][0], in_window[-1][1]
         if not rows:
-            if rule.condition == "stale":
-                return True, f"{rule.subject}: no sample for {rule.for_seconds:.0f}s", None, None
             return False, "", None, None
         if rule.condition == "bad":
             # Must hold for the whole window: one Bad sample is not an alarm.
@@ -93,8 +109,6 @@ def evaluate(conn: psycopg.Connection, rule: Rule,
                 return (True, f"{rule.subject} has been Uncertain for "
                         f"{rule.for_seconds:.0f}s", rows[-1][0], rows[-1][1])
             return False, "", None, None
-        if rule.condition == "stale":
-            return False, "", rows[-1][0], rows[-1][1]
         compare = COMPARISONS.get(rule.condition)
         if compare is None or rule.threshold is None:
             return False, "", None, None
@@ -111,11 +125,19 @@ def evaluate(conn: psycopg.Connection, rule: Rule,
         return False, "", good[-1][0], 0
 
     if rule.subject_kind == "kpi":
+        # "GrossUnitHeatRate@KPCL-RTPS-U1": a KPI on one element. A KPI is
+        # computed for every element it applies to, so a rule naming only the
+        # KPI would follow whichever element happened to be computed last.
+        name, _, asset_code = rule.subject.partition("@")
+        sql = ("SELECT k.value, k.quality, k.reason FROM kpi_value k"
+               " JOIN kpi_definition d ON d.id = k.kpi_definition_id"
+               " JOIN element e ON e.id = k.element_id WHERE d.name = %s")
+        params: tuple = (name,)
+        if asset_code:
+            sql += " AND e.asset_code = %s"
+            params += (asset_code,)
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT k.value, k.quality, k.reason FROM kpi_value k"
-                " JOIN kpi_definition d ON d.id = k.kpi_definition_id"
-                " WHERE d.name = %s ORDER BY k.ts DESC LIMIT 1", (rule.subject,))
+            cur.execute(sql + " ORDER BY k.ts DESC LIMIT 1", params)
             row = cur.fetchone()
         if row is None:
             return False, "", None, None
@@ -248,6 +270,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
     import time
+    logging.Formatter.converter = time.gmtime      # UTC, like every other log
     while True:
         with psycopg.connect(DSN) as conn:
             counts = run_once(conn)
@@ -260,8 +283,8 @@ def main() -> int:
                  counts["checked"], counts["raised"], counts["cleared"],
                  len(open_alerts))
         for name, severity, detail, raised in open_alerts:
-            log.warning("OPEN [%s] %s — %s (since %s)", severity, name, detail,
-                        raised.strftime("%H:%M:%S"))
+            log.warning("OPEN [%s] %s — %s (since %s UTC)", severity, name, detail,
+                        raised.astimezone(dt.timezone.utc).strftime("%H:%M:%S"))
         if args.once:
             return 0
         time.sleep(args.interval)

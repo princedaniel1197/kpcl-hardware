@@ -137,11 +137,18 @@ def test_the_station_role_must_be_scoped(conn):
 
 
 def test_creating_a_principal_is_audited(conn):
+    """Looked up by the new principal's own id: the audit log is append-only,
+    so counting every row an actor ever wrote would pass for ever after the
+    first run."""
     access.create_principal(conn, "test.audited", "maintenance", actor="inspector")
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM audit_log WHERE actor='inspector'"
-                    " AND entity='principal'")
-        assert cur.fetchone()[0] >= 1
+        cur.execute("SELECT id FROM principal WHERE username='test.audited'")
+        principal_id = cur.fetchone()[0]
+        cur.execute("SELECT actor, field, new_value, reason FROM audit_log"
+                    " WHERE entity='principal' AND entity_id=%s",
+                    (str(principal_id),))
+        assert cur.fetchall() == [("inspector", "role", "maintenance",
+                                   "created principal test.audited")]
 
 
 def test_tokens_have_real_entropy():
@@ -152,28 +159,65 @@ def test_tokens_have_real_entropy():
 
 # --- alerts (§507) ------------------------------------------------------------
 
-def test_quality_is_an_alert_condition(conn):
-    """A system that can only alarm on thresholds cannot tell you your
-    instrument has failed — it will report that a dead transmitter reads a
-    perfectly normal 0."""
+NOW = dt.datetime(2031, 3, 1, 12, 0, tzinfo=dt.timezone.utc)
+BAD = 2156593152
+
+
+def _tag_with(conn, samples):
+    """A throwaway tag with (seconds before NOW, value, quality) samples, inside
+    the fixture's transaction."""
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM alert_rule WHERE condition = 'bad'")
-        assert cur.fetchone()[0] >= 1
+        cur.execute("INSERT INTO tag (name) VALUES ('TEST_ALERT_TAG') RETURNING id")
+        tag_id = cur.fetchone()[0]
+        for ago, value, quality in samples:
+            ts = NOW - dt.timedelta(seconds=ago)
+            cur.execute("INSERT INTO sample (tag_id, source_ts, server_ts, value,"
+                        " quality) VALUES (%s,%s,%s,%s,%s)",
+                        (tag_id, ts, ts + dt.timedelta(milliseconds=30), value,
+                         quality))
+    return "TEST_ALERT_TAG"
+
+
+def _rule(subject, condition, threshold=None, for_seconds=30):
+    return alerts.Rule(id=-1, name="t", subject_kind="tag", subject=subject,
+                       condition=condition, threshold=threshold,
+                       for_seconds=for_seconds, severity="warning", recipients=[])
+
+
+def test_a_tag_that_stays_bad_keeps_its_alert(conn):
+    """Acquisition reports by exception: a tag that went Bad a minute ago and
+    stayed Bad has no sample inside a 30 s window. Its state carries in. The
+    first version looked only inside the window, and the alert raised and
+    cleared on alternate cycles."""
+    tag = _tag_with(conn, [(90, 5.0, 0), (60, None, BAD)])
+    firing, detail, _, quality = alerts.evaluate(conn, _rule(tag, "bad"), NOW)
+    assert firing and quality == BAD and "Bad" in detail
+
+
+def test_a_tag_that_recovered_inside_the_window_does_not_alarm(conn):
+    tag = _tag_with(conn, [(60, None, BAD), (10, 5.0, 0)])
+    assert not alerts.evaluate(conn, _rule(tag, "bad"), NOW)[0]
 
 
 def test_a_threshold_rule_will_not_fire_on_a_bad_sample(conn):
     """A Bad sample carries no value. A threshold rule that fires on one is
-    reporting a number that does not exist."""
-    rule = alerts.Rule(id=-1, name="t", subject_kind="tag",
-                       subject="U1_COAL_FLOW", condition=">", threshold=-1e9,
-                       for_seconds=5, severity="warning", recipients=[])
-    # Threshold -1e9 would match any real number; if the window is all Bad the
-    # rule must still not fire.
+    reporting a number that does not exist -- so a threshold every real number
+    exceeds must not fire while the tag is Bad, and must fire when it is Good."""
+    bad = _tag_with(conn, [(60, None, BAD), (20, None, BAD)])
+    assert not alerts.evaluate(conn, _rule(bad, ">", -1e9), NOW)[0]
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM sample s JOIN tag t ON t.id=s.tag_id"
-                    " WHERE t.name='U1_COAL_FLOW'")
-    firing, _, _, _ = alerts.evaluate(conn, rule)
-    assert isinstance(firing, bool)
+        cur.execute("DELETE FROM sample s USING tag t WHERE t.id = s.tag_id"
+                    " AND t.name = 'TEST_ALERT_TAG'")
+        cur.execute("DELETE FROM tag WHERE name = 'TEST_ALERT_TAG'")
+    good = _tag_with(conn, [(60, 3.0, 0), (20, 4.0, 0)])
+    firing, detail, value, _ = alerts.evaluate(conn, _rule(good, ">", -1e9), NOW)
+    assert firing and value == 4.0
+
+
+def test_stale_means_nothing_arrived_in_the_window(conn):
+    tag = _tag_with(conn, [(120, 5.0, 0)])
+    assert alerts.evaluate(conn, _rule(tag, "stale"), NOW)[0]
+    assert not alerts.evaluate(conn, _rule(tag, "stale", for_seconds=300), NOW)[0]
 
 
 def test_every_rule_has_a_debounce(conn):
@@ -182,14 +226,35 @@ def test_every_rule_has_a_debounce(conn):
         assert cur.fetchone()[0] == 0
 
 
-def test_delivery_failure_is_recorded_not_swallowed(conn):
+def test_delivery_failure_is_recorded_not_swallowed(conn, monkeypatch):
     """An alerting system that silently fails to alert is worse than none,
-    because it is trusted."""
+    because it is trusted. An SMTP server that refuses the connection must
+    leave the reason on the alert row."""
     with conn.cursor() as cur:
-        cur.execute("SELECT column_name FROM information_schema.columns"
-                    " WHERE table_name='alert' AND column_name IN"
-                    " ('delivered','delivery_error')")
-        assert len(cur.fetchall()) == 2
+        cur.execute("INSERT INTO alert_rule (name, subject_kind, subject,"
+                    " condition, severity, recipients) VALUES ('test.delivery',"
+                    " 'tag','X','bad','warning', ARRAY['ops@example.invalid'])"
+                    " RETURNING id")
+        rule_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO alert (rule_id, severity, detail) VALUES"
+                    " (%s,'warning','test') RETURNING id", (rule_id,))
+        alert_id = cur.fetchone()[0]
+    rule = alerts.Rule(rule_id, "test.delivery", "tag", "X", "bad", None, 0,
+                       "warning", ["ops@example.invalid"])
+    try:
+        monkeypatch.setenv("CRPMS_SMTP_HOST", "127.0.0.1")
+        monkeypatch.setenv("CRPMS_SMTP_PORT", "1")        # nothing listens
+        alerts.deliver(conn, alert_id, rule, "test")
+        with conn.cursor() as cur:
+            cur.execute("SELECT delivered, delivery_error FROM alert WHERE id=%s",
+                        (alert_id,))
+            delivered, error = cur.fetchone()
+        assert delivered is not True and error
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM alert WHERE rule_id = %s", (rule_id,))
+            cur.execute("DELETE FROM alert_rule WHERE id = %s", (rule_id,))
+        conn.commit()
 
 
 def test_an_alert_rule_rejects_an_unknown_severity(conn):
@@ -209,11 +274,28 @@ def test_capacity_collects_the_metrics_that_run_out(conn):
         assert metric in values
 
 
-def test_no_growth_gives_no_projection_rather_than_a_reassuring_number(conn):
+def test_growth_is_measured_between_the_first_and_last_sample(conn):
+    now = dt.datetime.now(dt.timezone.utc)
+    with conn.cursor() as cur:
+        for hours_ago, value in ((12, 1000.0), (6, 1600.0), (0, 2200.0)):
+            cur.execute("INSERT INTO capacity_sample (ts, metric, value)"
+                        " VALUES (%s, 'test_metric', %s)",
+                        (now - dt.timedelta(hours=hours_ago), value))
+    rate = capacity.growth(conn, "test_metric")
+    assert rate["per_day"] == pytest.approx(2400.0, rel=1e-3)   # 1200 in 12 h
+
+
+def test_no_growth_gives_no_projection_rather_than_a_reassuring_number(
+        conn, monkeypatch):
     """A capacity figure without a growth rate answers 'how full is it' but not
-    'when does it stop working'."""
-    result = capacity.days_until_full(conn)
-    assert result is None or result > 0
+    'when does it stop working' -- and a shrinking or flat database must give
+    no projection, not a very large one."""
+    for per_day in (0.0, -5.0):
+        monkeypatch.setattr(capacity, "growth", lambda *a, **k: {"per_day": per_day})
+        assert capacity.days_until_full(conn) is None
+    monkeypatch.setattr(capacity, "growth", lambda *a, **k: {"per_day": 1e9})
+    days = capacity.days_until_full(conn)
+    assert days is not None and 0 < days < 1e7
 
 
 # --- export (§503) -------------------------------------------------------------

@@ -14,11 +14,13 @@ import json
 import os
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 import psycopg
 
+from archive import audit
 from collector import omf
 from collector.model import Sample
 
@@ -26,15 +28,29 @@ ROOT = Path(__file__).parent.parent
 DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms")
 PORT_A = 8082
 PORT_B = 8083
+DEMO_TAG = "OMF_DEMO"
 
 
 def start_receiver(port: int) -> subprocess.Popen:
+    """Start a receiver of our own on `port`. If something already answers
+    there, refuse: the demonstration would be talking to a process it did not
+    start, running whatever code that process was started with. (Found on 23
+    September: a receiver left over from the day before answered, and its
+    counts were reported as this run's.)"""
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/omf/status", timeout=2)
+        raise RuntimeError(f"something is already serving port {port}; stop it "
+                           "first so this run talks to a receiver it started")
+    except urllib.error.URLError:
+        pass
     p = subprocess.Popen(
         [str(ROOT / ".venv/bin/python"), "-m", "archive.omf_receiver",
          "--port", str(port)],
         cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env={**os.environ})
     for _ in range(40):
+        if p.poll() is not None:
+            raise RuntimeError(f"the receiver on {port} exited ({p.returncode})")
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/omf/status",
                                    timeout=2).read()
@@ -61,10 +77,25 @@ def main() -> int:
         receivers = [start_receiver(PORT_A), start_receiver(PORT_B)]
         print(f"\n  two OMF receivers running on {PORT_A} and {PORT_B}")
 
+        # The demonstration's synthetic samples go under a tag of their own.
+        # The first version wrote them under U1_AUX_POWER -- a 123.45 MW
+        # auxiliary load and a Bad reading, in a real tag's history, where the
+        # trend, the export and the KPI engine would all take them for plant
+        # data. Found and removed on 23 September.
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM tag WHERE name = %s", (DEMO_TAG,))
+            if cur.fetchone() is None:
+                cur.execute(
+                    "INSERT INTO tag (name, description, engineering_unit,"
+                    " source_system) VALUES (%s, %s, 'MW', 'omf-demo') RETURNING id",
+                    (DEMO_TAG, "Stage 9 demonstration: synthetic values sent "
+                               "through OMF. Not plant data."))
+                audit.record(cur, actor="omf-demo", entity="tag",
+                             entity_id=cur.fetchone()[0], field=None, old=None,
+                             new=DEMO_TAG, reason="tag for the Stage 9 demonstration")
+                conn.commit()
             cur.execute("SELECT id, name, description, engineering_unit FROM tag"
-                        " WHERE source_system='opcua' AND name LIKE 'U1_%'"
-                        " ORDER BY name")
+                        " WHERE name = %s", (DEMO_TAG,))
             tags = [{"id": r[0], "name": r[1], "description": r[2],
                      "engineering_unit": r[3]} for r in cur.fetchall()]
 

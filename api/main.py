@@ -410,6 +410,7 @@ def main() -> int:
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
+    logging.Formatter.converter = __import__("time").gmtime   # UTC, like the data
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 

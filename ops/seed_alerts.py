@@ -46,6 +46,16 @@ def seed(conn: psycopg.Connection, spec: dict, actor: str) -> int:
                                         value, actor=actor,
                                         reason="seeded from config")
             count += changed
+        # A rule taken out of the configuration is disabled, not left firing
+        # and not deleted: its alerts keep pointing at it, and the audit row
+        # says why it stopped.
+        cur.execute("SELECT id, name FROM alert_rule WHERE enabled"
+                    " AND NOT (name = ANY(%s))",
+                    ([r["name"] for r in spec["rules"]],))
+        for rule_id, name in cur.fetchall():
+            audit.change(cur, "alert_rule", rule_id, "enabled", False, actor=actor,
+                         reason=f"rule '{name}' is no longer in the configuration")
+            count += 1
     conn.commit()
     return count
 
