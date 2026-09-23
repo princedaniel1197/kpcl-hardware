@@ -1,9 +1,9 @@
 """The collector's event stream.
 
 Every meaningful occurrence is emitted as a small JSON-serialisable event:
-value received, value buffered, buffer drained, gap detected, quality changed,
-link state changed. Stage 12's visualisation consumes this. It is built now and
-consumed later; nothing here knows what a browser is.
+value received, value refused, value buffered, buffer drained, publish gap
+detected, quality changed, link state changed. Stage 12's visualisation consumes
+it; nothing here knows what a browser is.
 
 Subscribers that cannot keep up lose the oldest events rather than blocking
 acquisition. A slow consumer must never be able to stall the collector.
@@ -16,6 +16,7 @@ import datetime as dt
 from typing import Any, AsyncIterator
 
 VALUE_RECEIVED = "value_received"
+VALUE_REFUSED = "value_refused"
 VALUE_BUFFERED = "value_buffered"
 VALUE_FORWARDED = "value_forwarded"
 BUFFER_DRAINED = "buffer_drained"
@@ -28,30 +29,22 @@ LINK_STATE = "link_state"
 
 
 class EventStream:
-    """In-process fan-out, with an optional relay to other processes.
+    """In-process fan-out to subscribers.
 
-    The visualisation runs in a different process from the collector, so events
-    have to cross a boundary. Postgres LISTEN/NOTIFY carries them: it is
-    real-time rather than polled, and it uses infrastructure that is already
-    there and already required to be running. A dropped notification is a
-    dropped *picture*, never a dropped sample — the archive is the record, and
+    The visualisation runs in a different process; `collector/event_server.py`
+    serves this stream to it over a WebSocket of the collector's own, which
+    does not touch the archive. (An earlier design relayed events through
+    Postgres LISTEN/NOTIFY, and froze the picture at the moment the archive
+    went away -- the moment the picture exists to show.) A dropped event is a
+    dropped *picture*, never a dropped sample: the archive is the record, and
     this stream is only how the picture moves.
     """
-
-    CHANNEL = "crpms_events"
 
     def __init__(self, queue_size: int = 2000) -> None:
         self._subscribers: list[asyncio.Queue] = []
         self._queue_size = queue_size
-        self._relay: asyncio.Queue | None = None
         self.dropped = 0
         self.emitted = 0
-        self.relayed = 0
-
-    def enable_relay(self, queue_size: int = 5000) -> asyncio.Queue:
-        """Start collecting events for relay to other processes."""
-        self._relay = asyncio.Queue(maxsize=queue_size)
-        return self._relay
 
     def emit(self, kind: str, **fields: Any) -> dict:
         event = {
@@ -60,12 +53,6 @@ class EventStream:
             **fields,
         }
         self.emitted += 1
-        if self._relay is not None:
-            try:
-                self._relay.put_nowait(event)
-                self.relayed += 1
-            except asyncio.QueueFull:
-                self.dropped += 1
         for queue in self._subscribers:
             try:
                 queue.put_nowait(event)

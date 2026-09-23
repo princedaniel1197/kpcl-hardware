@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "OPC UA servers the collector may connect to, and how to treat each one, identified by the server's own ApplicationUri (read from Server.ServerArray at connect).",
+    "source_deadband: whether the per-tag deadband (ExcDev) is applied AT THE SOURCE, as an OPC UA DataChangeFilter with Trigger StatusValue.",
+    "It defaults to true for any server not listed here: at 34,700 I/O the source deadband is what keeps unchanged values off the wire (§317).",
+    "It must be false for a server that suppresses a status change when the value has not moved past the deadband, because such a server can hide a tag going Bad (§318)."
+  ],
+  "default": {
+    "source_deadband": true
+  },
+  "sources": [
+    {
+      "name": "dcs-simulator",
+      "application_uri": "urn:orianode:crpms:dcs-simulator",
+      "endpoint": "opc.tcp://127.0.0.1:4840/orianode/crpms/",
+      "source_deadband": false,
+      "reason": "The simulator runs on asyncua 2.0.1, whose server ANDs the data-change trigger with the deadband test, so a StatusCode change on a value inside the deadband is never sent. Measured: with a source deadband, forcing a tag to BadDeviceFailure produced zero Bad notifications. See collector/deadband_evidence.py and fat/records/stage-06-quality-rules.md."
+    }
+  ]
+}

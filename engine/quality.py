@@ -39,7 +39,11 @@ from asyncua import ua
 #     values it merely distrusts.
 #   stale -> Bad, because nothing is arriving; there is no measurement to judge.
 OUT_OF_RANGE = int(ua.StatusCodes.BadOutOfRange)
-RATE_EXCEEDED = int(ua.StatusCodes.UncertainSensorNotAccurate)
+# Plain Uncertain: OPC UA has no code for "changing faster than is plausible".
+# It used to be UncertainSensorNotAccurate, which says the value is at a sensor
+# limit -- a specific claim this rule does not make. The reason text carries
+# the detail.
+RATE_EXCEEDED = int(ua.StatusCodes.Uncertain)
 INCONSISTENT = int(ua.StatusCodes.UncertainSubNormal)
 FROZEN = int(ua.StatusCodes.UncertainLastUsableValue)
 STALE = int(ua.StatusCodes.BadNoCommunication)

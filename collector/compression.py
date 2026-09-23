@@ -25,14 +25,39 @@ deadband, a value is archived when:
 These four are where naive implementations lose the data that matters. Each has
 a test.
 
-NOTE ON SCOPE. Compression deliberately discards samples. That is the opposite
-of the guarantee Stage 3 tests -- that nothing acquired is lost between the
-source and the archive. The two are reconciled by *what* is discarded: a sample
-inside the deadband is one whose value can be reconstructed from its
-neighbours to within CompDev, and the reconstruction test proves it. Nothing
-that cannot be reconstructed is ever discarded. This module is not wired into
-the live pipeline by default; Stage 3's zero-loss result was measured with it
-off, and turning it on changes what "loss" means.
+On (2), precisely: the COMPRESSOR forces a repeated timestamp through. The
+ARCHIVE then keeps the first row it received for that (tag, source_ts) and
+discards the second on its primary key -- so a repeated timestamp reaches the
+archive as the original sample, not as a second one. In the live pipeline a
+repeat of the timestamp just taken is absorbed and counted before it reaches the
+compressor at all (pipeline.py, DUPLICATE_TS).
+
+IN THE LIVE PATH, per tag, when the tag's `compress` column is true. It is
+false for every tag by default (archive migration 014), because compression
+deliberately discards samples and Stage 3's guarantee is that nothing acquired
+is lost between the source and the archive. The two are reconciled by *what* is
+discarded -- a sample inside the deadband is one whose value can be
+reconstructed from its neighbours to within CompDev, and the reconstruction test
+proves it -- but with compression on, "zero loss" means "nothing that cannot be
+reconstructed within CompDev", and that is a different claim. Stage 3's zero-
+loss figure was measured with compression off, and stays reproducible because it
+is off by default.
+
+What compression costs in the live path, stated rather than discovered: the
+swinging door decides a point only when its corridor closes, so an archived
+point can reach the archive up to max_time after it was measured, and a SIGKILL
+loses the open segment (a clean stop flushes it to the buffer). With two
+redundant collectors both compressing, each archives its own choice of points
+and the archive holds the union; the CompDev bound is proved for each
+collector's choice, not for the union.
+
+COST. The door holds the raw samples of the open segment, and checks each new
+sample and each candidate archive point against them: O(n) per sample and O(n^2)
+per segment, where n = max_time x sample rate. At 2 Hz and a 60 s max_time n is
+120 and the cost is invisible. At kHz vibration rates n reaches tens of
+thousands and it is not; such a tag needs a short max_time or a different
+algorithm. max_time is REQUIRED whenever CompDev is set, because without it the
+segment, and the memory and time it costs, is unbounded.
 """
 
 from __future__ import annotations
@@ -174,6 +199,10 @@ class SwingingDoor:
     """
 
     def __init__(self, comp_dev: float | None, max_time_ms: int | None = None) -> None:
+        if comp_dev is not None and not max_time_ms:
+            raise ValueError(
+                "CompDev without max_time: the open segment, and the memory "
+                "and time it costs, would be unbounded")
         self.comp_dev = comp_dev
         self.max_time = (dt.timedelta(milliseconds=max_time_ms)
                          if max_time_ms else None)

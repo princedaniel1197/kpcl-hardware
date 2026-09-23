@@ -30,10 +30,12 @@ import datetime as dt
 import logging
 import random
 import time
+from collections import deque
 
 from asyncua import Server, ua
 
 from sim import tags as tagdefs
+from sim.ledger import Ledger
 from sim.plant import Phase, Plant
 from sim.quality import QualityOverrides
 
@@ -42,6 +44,9 @@ log = logging.getLogger("sim")
 DEFAULT_ENDPOINT = "opc.tcp://0.0.0.0:4840/orianode/crpms/"
 NAMESPACE_URI = "urn:orianode:crpms:sim"
 SERVER_NAME = "Orianode CRPMS DCS Simulator"
+# The server's own identity. The collector reads it from Server.ServerArray to
+# decide how to treat this source (config/sources.json).
+APPLICATION_URI = "urn:orianode:crpms:dcs-simulator"
 
 
 class SimulatorServer:
@@ -79,12 +84,23 @@ class SimulatorServer:
         self._scan_count = 0
         self._digital_writes = 0
 
+        # The source's own record of what it published (sim/ledger.py), and
+        # per-scan timing, so the load a client places on this server can be
+        # measured from the server's side (§317).
+        self.ledger = Ledger()
+        self.scan_stats: deque[tuple[int, float, float]] = deque(maxlen=20_000)
+
     # -- lifecycle ---------------------------------------------------------
 
     async def init(self) -> None:
         await self._server.init()
         self._server.set_endpoint(self.endpoint)
         self._server.set_server_name(SERVER_NAME)
+        await self._server.set_application_uri(APPLICATION_URI)
+        # set_application_uri updates the namespace array but not ServerArray,
+        # which init() has already written with the library default.
+        await self._server.get_node(
+            ua.NodeId(ua.ObjectIds.Server_ServerArray)).write_value([APPLICATION_URI])
         idx = await self._server.register_namespace(NAMESPACE_URI)
         self.namespace_index = idx
 
@@ -137,14 +153,22 @@ class SimulatorServer:
         self._last_digital = {t.name: None for t in tagdefs.DIGITALS}
         log.info("start-up sequence restarted")
 
-    async def scan_once(self) -> None:
-        """One scan: compute, wait out the field latency, publish."""
+    async def scan_once(self, due: float | None = None) -> None:
+        """One scan: compute, wait out the field latency, publish.
+
+        Records the scan's WORK time -- computing and writing, excluding the
+        deliberate field-latency wait -- and how late it started against its
+        schedule. Both are what a DCS reports as controller loading, and both
+        are what a client placing load on this server would disturb.
+        """
+        began = time.monotonic()
         state = self.plant.state_at(self.elapsed_s)
 
         # The instant the simulator computed these values. Everything in one
         # scan was computed together, so they share it. This is never replaced
         # by the time the value was written or received, anywhere, ever.
         source_ts = dt.datetime.now(dt.timezone.utc)
+        computed = time.monotonic()
 
         # Field-to-server transit, with a little jitter. The write that follows
         # is what the server stamps as ServerTimestamp.
@@ -153,6 +177,7 @@ class SimulatorServer:
                 max(0.0, self._rng.gauss(self.field_latency_s,
                                          self.field_latency_s * 0.15))
             )
+        writing = time.monotonic()
 
         for name, value in state.analogues.items():
             await self._write(name, value, source_ts, ua.VariantType.Double)
@@ -165,7 +190,11 @@ class SimulatorServer:
                 self._digital_writes += 1
                 log.info("digital %s -> %s (%s)", name, value, state.phase.value)
 
+        finished = time.monotonic()
         self._scan_count += 1
+        work = (computed - began) + (finished - writing)
+        lateness = began - due if due is not None else 0.0
+        self.scan_stats.append((self._scan_count, work, lateness))
 
     async def _write(self, name, value, source_ts, variant_type) -> None:
         """Write one tag as a DataValue carrying its own quality and source
@@ -180,6 +209,7 @@ class SimulatorServer:
                 SourceTimestamp=source_ts,
             )
         )
+        self.ledger.record(name, value, status, source_ts)
 
     async def run(self) -> None:
         """Serve, and scan on a schedule that does not drift."""
@@ -194,7 +224,7 @@ class SimulatorServer:
                 delay = due - time.monotonic()
                 if delay > 0:
                     await asyncio.sleep(delay)
-                await self.scan_once()
+                await self.scan_once(due)
 
                 phase = self.plant.phase_at(self.elapsed_s)[0]
                 if phase is not last_phase:
@@ -218,4 +248,31 @@ class SimulatorServer:
             "scans": self._scan_count,
             "digital_writes": self._digital_writes,
             "forced": self.overrides.forced,
+            "ledger_writes": self.ledger.writes,
+            "ledger_since": (dt.datetime(1970, 1, 1, tzinfo=dt.timezone.utc)
+                             + dt.timedelta(microseconds=self.ledger.oldest_us)
+                             ).isoformat() if self.ledger.oldest_us else None,
+        }
+
+    def scan_summary(self, after_scan: int, up_to_scan: int | None = None) -> dict:
+        """Work time and lateness over scans numbered (after_scan, up_to_scan]."""
+        rows = [r for r in self.scan_stats
+                if r[0] > after_scan and (up_to_scan is None or r[0] <= up_to_scan)]
+        if not rows:
+            return {"scans": 0}
+
+        def pct(values: list[float], q: float) -> float:
+            ordered = sorted(values)
+            return ordered[min(len(ordered) - 1, int(len(ordered) * q))]
+
+        work = [r[1] * 1000 for r in rows]
+        late = [r[2] * 1000 for r in rows]
+        return {
+            "scans": len(rows), "first": rows[0][0], "last": rows[-1][0],
+            "work_ms": {"p50": round(pct(work, 0.5), 3),
+                        "p95": round(pct(work, 0.95), 3),
+                        "max": round(max(work), 3)},
+            "lateness_ms": {"p50": round(pct(late, 0.5), 3),
+                            "p95": round(pct(late, 0.95), 3),
+                            "max": round(max(late), 3)},
         }

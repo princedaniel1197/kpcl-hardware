@@ -116,6 +116,8 @@ def test_the_station_role_is_scoped(conn):
     principal = access.authenticate(conn, token)
     assert principal.may_see_station("RTPS")
     assert not principal.may_see_station("BTPS")
+    # Data that belongs to no station is not assumed visible.
+    assert not principal.may_see_station(None)
 
 
 def test_every_other_role_is_fleet_wide(conn):
@@ -123,6 +125,7 @@ def test_every_other_role_is_fleet_wide(conn):
     principal = access.authenticate(conn, token)
     assert principal.may_see_station("RTPS")
     assert principal.may_see_station("BTPS")
+    assert principal.may_see_station(None)
 
 
 def test_the_station_role_must_be_scoped(conn):

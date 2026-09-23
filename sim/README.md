@@ -16,6 +16,7 @@ SIM_STARTUP_SECONDS=10800 make sim        # three-hour start-up
 | OPC UA endpoint | `opc.tcp://0.0.0.0:4840/orianode/crpms/` |
 | Namespace | `urn:orianode:crpms:sim` |
 | Control API | `http://127.0.0.1:8081/docs` |
+| ApplicationUri | `urn:orianode:crpms:dcs-simulator` — how the collector recognises this server in `config/sources.json` |
 | Tags | 11 analogues, 3 digitals, under `Objects/Unit1` |
 | Scan interval | 500 ms, configurable |
 
@@ -89,6 +90,20 @@ curl localhost:8081/status
 ```
 
 Forceable: `Good`, `BadDeviceFailure`, `UncertainSensorNotAccurate`.
+
+Two read-only endpoints exist for measurement rather than demonstration:
+
+| Endpoint | Returns |
+|---|---|
+| `GET /scans?after=N` | the server's own scan timing since scan N: work time (computing and writing, excluding the field-latency wait) and lateness against schedule, P50/P95/max. What T-12 measures non-intrusiveness against (§317). |
+| `GET /ledger?since=…&until=…` | every source timestamp this server published that a subscription must report, per tag (`sim/ledger.py`). What T-04 and Stage 11 check completeness against. |
+
+**The control API has no authentication.** Anyone who can reach port 8081 can
+force a tag's quality or restart the start-up sequence. That is acceptable for a
+stand-in on a laptop bound to 127.0.0.1 and would not be for anything else: it
+is the one surface in the project that changes what the source publishes, and it
+is stated here rather than left to be discovered. It changes quality and phase,
+never a value.
 
 **It forces quality only.** There is no endpoint that writes a value and there
 must never be one — that would be a control path into the simulated plant, and

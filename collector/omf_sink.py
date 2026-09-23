@@ -1,20 +1,32 @@
 """An OMF sink with the same interface as the direct archive sink.
 
-Selected by setting CRPMS_OMF_URL. The collector then emits OMF and nothing
-else, which is what makes "the collector's only output format is OMF" true
-rather than aspirational. Everything upstream — buffering, ordered drain,
-idempotency — is unchanged, because the sink is the only thing that differs.
+Selected by setting CRPMS_OMF_URL. The collector then emits OMF for every
+sample, which is what makes "the collector's only output format is OMF" true
+for data rather than aspirational. Everything upstream — buffering, ordered
+drain, idempotency — is unchanged, because the sink is the only thing that
+differs.
+
+WHAT OMF DOES NOT CARRY, stated rather than implied. The per-tag sequence
+number and the collector run travel with every row on the SQL path; the OMF
+sample type has no property for them, and PI has no field for them either, so
+on this path they are not archived and `sample_seq_gap` has nothing to check.
+Three things that are not data still use SQL against the configuration
+database, exactly as reading tag configuration always has: registering the
+collector run, recording buffer-overflow losses in `collector_loss`, and
+reading which tags to subscribe to.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import socket
 
 import psycopg
 
 from collector import omf
 from collector.model import Sample
-from collector.sink import SinkUnavailable
+from collector.sink import INSERT_LOSS, SinkUnavailable
 
 log = logging.getLogger("collector.omf_sink")
 
@@ -75,6 +87,29 @@ class OmfSink:
             raise SinkUnavailable(str(exc)) from exc
         return len(samples)
 
+    async def write_losses(self, losses: list[dict]) -> None:
+        if not losses:
+            return
+        conn = await self._db()
+        try:
+            async with conn.cursor() as cur:
+                await cur.executemany(INSERT_LOSS, losses)
+            await conn.commit()
+        except psycopg.Error as exc:
+            await self.close()
+            raise SinkUnavailable(str(exc)) from exc
+
+    async def register_run(self, instance: str) -> int:
+        conn = await self._db()
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO collector_run (instance, host, pid)"
+                " VALUES (%s, %s, %s) RETURNING id",
+                (instance, socket.gethostname(), os.getpid()))
+            run_id = (await cur.fetchone())[0]
+        await conn.commit()
+        return run_id
+
     async def _db(self) -> psycopg.AsyncConnection:
         if self._conn is None or self._conn.closed:
             try:
@@ -89,13 +124,13 @@ class OmfSink:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT id, name, scan_rate_ms, exc_dev, comp_dev, max_time_ms,"
-                " description, engineering_unit, source_path FROM tag"
+                " description, engineering_unit, source_path, compress FROM tag"
                 " WHERE source_system = ANY(%s) ORDER BY name", (list(systems),))
             rows = await cur.fetchall()
         return [{"id": r[0], "name": r[1], "scan_rate_ms": r[2],
                  "exc_dev": r[3], "comp_dev": r[4], "max_time_ms": r[5],
                  "description": r[6], "engineering_unit": r[7],
-                 "source_path": r[8]} for r in rows]
+                 "source_path": r[8], "compress": r[9]} for r in rows]
 
     async def tags(self) -> list[dict]:
         """Tags to SUBSCRIBE to: the ones coming from the source."""

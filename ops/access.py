@@ -9,7 +9,8 @@ lockout, no multi-factor, no SSO, no session management and no token rotation
 schedule. A real deployment puts authentication behind the customer's own
 directory. What is demonstrated here is that every API call carries a principal,
 that the principal has exactly one role, and that the role decides what the call
-may do — which is the part §509 is actually about.
+may do — which is the part §509 is actually about. The API enforces it on every
+route (api/auth.py); a route with no permission declared is refused.
 
 Tokens are stored as SHA-256 and shown once. The plaintext is never persisted,
 never logged, and cannot be recovered; a lost token is replaced, not looked up.
@@ -48,10 +49,15 @@ class Principal:
         return permission in self.permissions
 
     def may_see_station(self, station: str | None) -> bool:
-        """The station role is scoped; every other role is fleet-wide."""
-        if self.role != "station" or station is None:
+        """The station role is scoped; every other role is fleet-wide.
+
+        A station principal sees only what is positively known to belong to its
+        station. Something with no station at all -- a tag not mapped to any
+        element, the collector's own health -- is refused, not assumed to be
+        visible: scoping that fails open is not scoping."""
+        if self.role != "station":
             return True
-        return self.station == station
+        return station is not None and self.station == station
 
 
 class AccessError(PermissionError):

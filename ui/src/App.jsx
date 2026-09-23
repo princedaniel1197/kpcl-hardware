@@ -3,7 +3,8 @@ import Pipeline from './Pipeline'
 import Mimic from './Mimic'
 import Trend from './Trend'
 import Scrubber from './Scrubber'
-import { connectEvents, getKpis, getStatus, getTagHealth, getEvents, getTrend } from './api'
+import { AuthError, connectEvents, getEvents, getKpis, getStatus, getTagHealth,
+         getToken, getWhoami, setToken } from './api'
 import { isa, mono, sans, qualityColour } from './theme'
 
 const MIMIC_TAGS = [
@@ -15,7 +16,61 @@ const MIMIC_TAGS = [
 
 const TABS = ['Pipeline', 'Unit overview', 'Unit TSI', 'Trends', 'Replay', 'Health']
 
+// Every API call is authenticated (§509). Without a valid token there is
+// nothing to show, so the first thing on screen is the sign-in.
 export default function App() {
+  const [who, setWho] = useState(null)
+  const [checked, setChecked] = useState(false)
+
+  const check = useCallback(async () => {
+    if (!getToken()) { setWho(null); setChecked(true); return }
+    try {
+      setWho(await getWhoami())
+    } catch (e) {
+      if (e instanceof AuthError) setToken(null)
+      setWho(null)
+    }
+    setChecked(true)
+  }, [])
+
+  useEffect(() => { check() }, [check])
+  const signOut = useCallback(() => { setToken(null); setWho(null) }, [])
+
+  if (!checked) return null
+  if (!who) return <SignIn onToken={(t) => { setToken(t); check() }} />
+  return <Dashboard who={who} onSignOut={signOut} />
+}
+
+function SignIn({ onToken }) {
+  const [value, setValue] = useState('')
+  return (
+    <div style={{ fontFamily: sans, background: isa.background, minHeight: '100vh',
+                  color: isa.text, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', padding: 16 }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (value.trim()) onToken(value.trim()) }}
+            style={{ background: isa.panel, border: `1px solid ${isa.line}`,
+                     padding: 20, width: 'min(420px, 100%)' }}>
+        <strong style={{ letterSpacing: 0.5 }}>CRPMS</strong>
+        <p style={{ fontSize: 12, color: isa.textDim }}>
+          Paste an access token. Tokens are issued with
+          <code style={{ fontFamily: mono }}> python -m ops.access create</code> and
+          shown once; the server keeps only their SHA-256.
+        </p>
+        <input type="password" autoFocus value={value}
+               onChange={(e) => setValue(e.target.value)}
+               aria-label="access token"
+               style={{ width: '100%', boxSizing: 'border-box', fontFamily: mono,
+                        fontSize: 12, padding: 6, border: `1px solid ${isa.lineStrong}` }} />
+        <button type="submit" style={{ marginTop: 10, fontFamily: sans, fontSize: 12,
+                                       padding: '4px 12px', cursor: 'pointer' }}>
+          Sign in
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function Dashboard({ who, onSignOut }) {
   const [tab, setTab] = useState('Pipeline')
   const [events, setEvents] = useState([])
   const [link, setLink] = useState('connecting')
@@ -49,12 +104,16 @@ export default function App() {
         const [s, k, h, f] = await Promise.all([
           getStatus(), getKpis(), getTagHealth(), getEvents('KPCL-RTPS-U1')])
         setStatus(s); setKpis(k); setHealth(h); setFrames(f)
-      } catch { /* the API being briefly away is not worth a red screen */ }
+      } catch (e) {
+        // A revoked or expired token signs the viewer out; the API being
+        // briefly away is not worth a red screen.
+        if (e instanceof AuthError) onSignOut()
+      }
     }
     poll()
     const t = setInterval(poll, 2500)          // §528: 2-3 s dashboard refresh
     return () => clearInterval(t)
-  }, [])
+  }, [onSignOut])
 
   const badTags = health.filter((h) => h.state !== 'ok')
 
@@ -83,6 +142,14 @@ export default function App() {
                        color: link === 'connected' ? isa.textDim : isa.bad }}>
           {link === 'connected' ? `live · ${events.length} events` : `stream ${link}`}
         </span>
+        <span style={{ fontSize: 11, color: isa.textDim }}>
+          {who.username} · {who.role}{who.station ? ` (${who.station})` : ''}
+        </span>
+        <button onClick={onSignOut}
+                style={{ fontFamily: sans, fontSize: 11, padding: '2px 8px',
+                         cursor: 'pointer' }}>
+          Sign out
+        </button>
       </header>
 
       <main style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -264,7 +331,7 @@ function TsiOverview({ values, frames }) {
           <>
             <div style={{ fontFamily: mono, fontSize: 11, color: isa.textDim }}>
               {latest.template} · {latest.status}
-              {latest.duration_s && ` · ${(latest.duration_s / 60).toFixed(1)} min`}
+              {latest.duration_s != null && ` · ${(latest.duration_s / 60).toFixed(1)} min`}
             </div>
             <table style={{ fontSize: 11, marginTop: 8, width: '100%' }}>
               <tbody>

@@ -2,13 +2,40 @@
 
 Scan rates and deadbands are NOT here: they live in the tag table and are read
 from it at subscribe time, because they are per-tag configuration and changing
-one must not require editing Python (§317, §341).
+one must not require editing Python (§317, §341). How each SOURCE server is
+treated -- whether the deadband is applied at the source -- is in
+config/sources.json.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+SOURCES_FILE = Path(__file__).parent.parent / "config" / "sources.json"
+
+
+def source_settings(application_uri: str, path: Path = SOURCES_FILE) -> dict:
+    """The settings for one OPC UA server, identified by its ApplicationUri:
+    its entry in sources.json laid over the file's defaults. A server not
+    listed gets the defaults, which apply the deadband at the source.
+
+    Matched on the server's own identity rather than on the endpoint string,
+    because the same server is reachable as 127.0.0.1, localhost or a host
+    name, and a setting that silently stops applying when someone types the
+    address differently is not a setting."""
+    document = json.loads(path.read_text())
+    settings = {"source_deadband": True, **document.get("default", {}),
+                "matched": None}
+    for source in document.get("sources", []):
+        if source.get("application_uri") == application_uri:
+            settings.update({k: v for k, v in source.items()
+                             if k not in ("application_uri", "endpoint")})
+            settings["matched"] = source.get("name", application_uri)
+            break
+    return settings
 
 
 @dataclass(frozen=True)
@@ -18,8 +45,9 @@ class CollectorConfig:
     buffer_path: str = "buffer/collector.sqlite"
 
     # Bounded, as the build plan requires. When full, the oldest buffered
-    # samples are discarded -- a ring, as PI's buffering behaves -- and the loss
-    # is logged and left detectable through the per-tag sequence numbers.
+    # samples are discarded -- a ring, as PI's buffering behaves. The loss is
+    # counted in the BUFFER_LOST health tag and every discarded range is
+    # recorded, with its sequence numbers, in the archive's collector_loss.
     buffer_max_rows: int = 500_000
     buffer_warn_fraction: float = 0.80
 

@@ -15,7 +15,15 @@ The verification is exact rather than statistical. The test subscribes to the
 collector's own event stream and records every sample the collector says it
 received, then compares that ledger against the archive row by row. "No sample
 missing" is checked against what was actually acquired, not against an estimate
-of what should have been.
+of what should have been. Two independent checks sit beside the ledger: the
+OPC UA server's own NotificationMessage numbering (a hole is a message the
+collector never received), and the per-run sequence numbers stored with every
+archived row (a hole is a sample the collector meant to write and did not).
+
+It must run ALONE. With another collector writing the same tags, a sample this
+test's collector lost could be supplied by the other one, and the test would
+credit this collector with the other's work. So it refuses to start while
+another collector process is running.
 """
 
 from __future__ import annotations
@@ -24,9 +32,11 @@ import argparse
 import asyncio
 import datetime as dt
 import logging
+import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import psycopg
 
@@ -80,35 +90,61 @@ class Ledger:
                 self.link_changes.append(event)
 
 
+def other_collectors() -> list[str]:
+    out = subprocess.run(["pgrep", "-f", "-l", "Python -m collector"],
+                         capture_output=True, text=True).stdout.split("\n")
+    return [line for line in out
+            if line.strip() and not line.startswith(str(os.getpid()))
+            and "outage_test" not in line]
+
+
 async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
+    others = other_collectors()
+    if others:
+        print("another collector is running; stop it first, or this test would "
+              "credit this collector with the other one's writes:")
+        for line in others:
+            print(f"    {line}")
+        return 2
+
     stream = EventStream(queue_size=200_000)
-    buffer = Buffer(config.buffer_path, config.buffer_max_rows)
+    # A buffer of its own, empty at the start: a leftover from a previous run
+    # would be drained into the archive and counted as this run's work.
+    buffer_path = Path(config.buffer_path).with_name("outage-test.sqlite")
+    for leftover in buffer_path.parent.glob(buffer_path.name + "*"):
+        leftover.unlink()
+    buffer = Buffer(buffer_path, config.buffer_max_rows)
     sink = ArchiveSink(config.dsn)
     await sink.connect()
     tags = await sink.tags()
+    run_id = await sink.register_run("outage-test")
 
-    pipeline = Pipeline(config, sink, buffer, stream)
+    pipeline = Pipeline(config, sink, buffer, stream, run_id=run_id)
     pipeline.link_up = True
     pipeline.last_forward_monotonic = time.monotonic()
 
     async with sink._conn.cursor() as cur:
         await cur.execute("SELECT name, id FROM tag WHERE source_system='collector'")
         health_ids = {n: i for n, i in await cur.fetchall()}
-    publisher = HealthPublisher(pipeline, health_ids, config.health_interval_s)
-
-    session = ReadOnlySession(config.endpoint, pipeline.on_sample)
-    await session.connect(tags)
-    print(f"subscribed to {len(session.subscribed)} tags\n")
-
-    # Start from a clean archive so "received" and "rows" are comparable.
-    with psycopg.connect(config.dsn) as clean, clean.cursor() as cur:
-        cur.execute("DELETE FROM sample s USING tag t WHERE t.id = s.tag_id "
-                    "AND t.source_system IN ('opcua','collector')")
-        clean.commit()
 
     ledger = Ledger()
+
+    def publish_gap(subscription_id: int, sequence_number: int, missed: int) -> None:
+        stream.emit(ev.GAP_DETECTED, subscription=subscription_id,
+                    sequence_number=sequence_number, missed=missed)
+
+    session = ReadOnlySession(config.endpoint, pipeline.on_sample,
+                              on_publish_gap=publish_gap)
+    publisher = HealthPublisher(pipeline, health_ids, config.health_interval_s,
+                                session=session)
+    # The ledger must be listening before the first sample arrives.
+    ledger_task = asyncio.create_task(ledger.follow(stream))
+    await asyncio.sleep(0)
+    await session.connect(tags)
+    print(f"collector run {run_id}; subscribed to {len(session.subscribed)} tags "
+          f"(source deadband {'on' if session.source_deadband else 'off'})\n")
     tasks = [
-        asyncio.create_task(ledger.follow(stream)),
+        ledger_task,
         asyncio.create_task(pipeline.run_forwarder()),
     ]
 
@@ -179,26 +215,41 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
     print("=" * 74)
     ok = True
 
+    # The archive is compared over the stretch of time the ledger covers, and
+    # nothing outside it: history from before the test is left alone.
+    first_ts = min(dt.datetime.fromisoformat(src) for _, src in ledger.received)
+    last_ts = max(dt.datetime.fromisoformat(src) for _, src in ledger.received)
+    names = sorted({name for name, _ in ledger.received})
     with psycopg.connect(config.dsn) as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT t.name, s.source_ts, s.server_ts, s.value, s.quality
             FROM sample s JOIN tag t ON t.id = s.tag_id
-            WHERE t.source_system IN ('opcua','collector')
-        """)
+            WHERE t.name = ANY(%s) AND s.source_ts BETWEEN %s AND %s
+        """, (names, first_ts, last_ts))
         archive = {(name, src.isoformat()): (srv, val, q)
                    for name, src, srv, val, q in cur.fetchall()}
 
         cur.execute("""
             SELECT count(*), count(DISTINCT (s.tag_id, s.source_ts))
             FROM sample s JOIN tag t ON t.id = s.tag_id
-            WHERE t.source_system IN ('opcua','collector')
-        """)
+            WHERE t.name = ANY(%s) AND s.source_ts BETWEEN %s AND %s
+        """, (names, first_ts, last_ts))
         total_rows, distinct_keys = cur.fetchone()
+
+        cur.execute("SELECT count(*), coalesce(sum(missing), 0)"
+                    " FROM sample_seq_gap WHERE collector_run = %s", (run_id,))
+        seq_holes, seq_missing = cur.fetchone()
+        cur.execute("SELECT count(*) FROM sample WHERE collector_run = %s",
+                    (run_id,))
+        numbered_rows = cur.fetchone()[0]
+        cur.execute("SELECT coalesce(sum(samples), 0) FROM collector_loss"
+                    " WHERE collector_run = %s", (run_id,))
+        recorded_lost = cur.fetchone()[0]
 
     # a. nothing acquired is missing
     missing = [k for k in ledger.received if k not in archive]
     print(f"\n  samples the collector received : {len(ledger.received):,}")
-    print(f"  rows in the archive            : {total_rows:,}")
+    print(f"  rows in the archive, same span : {total_rows:,}")
     print(f"  missing from the archive       : {len(missing)}")
     if missing:
         ok = False
@@ -233,16 +284,19 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
     # d. source_ts is never the receipt time
     with psycopg.connect(config.dsn) as conn, conn.cursor() as cur:
         cur.execute("""
-            SELECT count(*) FROM sample s JOIN tag t ON t.id = s.tag_id
-            WHERE t.source_system = 'opcua' AND s.server_ts <= s.source_ts
-        """)
-        non_causal = cur.fetchone()[0]
+            SELECT count(*) FILTER (WHERE s.server_ts <= s.source_ts),
+                   count(*) FILTER (WHERE s.server_ts IS NULL)
+            FROM sample s JOIN tag t ON t.id = s.tag_id
+            WHERE t.source_system = 'opcua' AND s.source_ts BETWEEN %s AND %s
+        """, (first_ts, last_ts))
+        non_causal, no_server_ts = cur.fetchone()
         cur.execute("""
             SELECT count(*) FROM sample s JOIN tag t ON t.id = s.tag_id
             WHERE t.source_system = 'opcua' AND s.source_ts >= %s AND s.source_ts <= %s
         """, (stop_instant, start_instant))
         acquired_during_outage = cur.fetchone()[0]
     print(f"\n  rows with server_ts <= source_ts: {non_causal}")
+    print(f"  rows with no server_ts         : {no_server_ts}")
     print(f"    SOURCE TIME IS NOT RECEIPT TIME: "
           f"{'PASS' if non_causal == 0 else 'FAIL'}")
     ok = ok and non_causal == 0
@@ -259,7 +313,6 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
     print(f"\n  buffer depth at restore        : {depth_at_restore:,}")
     print(f"  peak buffer depth              : {ledger.max_buffer_depth:,}")
     print(f"  buffer overflow (lost samples) : {ledger.overflow}")
-    print(f"  sequence gaps detected         : {len(ledger.gaps)}")
     print(f"  link state changes             : "
           f"{[(c['up'], c['detail'][:40]) for c in ledger.link_changes]}")
     for drain in ledger.drain_events:
@@ -268,6 +321,20 @@ async def run(run_s: float, outage_s: float, config: CollectorConfig) -> int:
     print(f"    NO SAMPLES LOST TO OVERFLOW: "
           f"{'PASS' if ledger.overflow == 0 else 'FAIL'}")
     ok = ok and ledger.overflow == 0
+
+    # g. the two independent loss checks
+    missed = sum(g["missed"] for g in ledger.gaps)
+    print(f"\n  OPC UA NotificationMessages missed (server numbering): {missed}"
+          f" in {len(ledger.gaps)} gap(s)")
+    print(f"    NOTHING MISSED AT THE SOURCE: {'PASS' if missed == 0 else 'FAIL'}")
+    ok = ok and missed == 0
+    print(f"\n  rows numbered by run {run_id}         : {numbered_rows:,}")
+    print(f"  holes in the run's sequence    : {seq_holes} "
+          f"({seq_missing} samples)")
+    print(f"  recorded in collector_loss     : {recorded_lost}")
+    print(f"    NOTHING MISSING BY SEQUENCE: "
+          f"{'PASS' if seq_holes == 0 and recorded_lost == 0 else 'FAIL'}")
+    ok = ok and seq_holes == 0 and recorded_lost == 0
 
     print("\n" + "=" * 74)
     print(f"STAGE 3 OUTAGE TEST: {'PASS' if ok else 'FAIL'}")

@@ -6,11 +6,13 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
 import time
 
 import psycopg
 
+from collector import events as ev
 from collector.buffer import Buffer
 from collector.config import CollectorConfig
 from collector.events import EventStream
@@ -111,8 +113,8 @@ async def run(config: CollectorConfig) -> None:
                     config.buffer_warn_fraction)
 
     # Output format is configuration. Setting CRPMS_OMF_URL makes OMF the
-    # collector's only output; pointing it at a real PI Web API OMF endpoint is
-    # that URL plus credentials and no code change (Stage 9).
+    # collector's only output for data; pointing it at a real PI Web API OMF
+    # endpoint is that URL plus credentials and no code change (Stage 9).
     omf_url = os.environ.get("CRPMS_OMF_URL")
     if omf_url:
         from collector import omf as omf_mod
@@ -130,45 +132,90 @@ async def run(config: CollectorConfig) -> None:
         log.info("output format: direct SQL")
 
     # Tag configuration must be readable at least once to know what to
-    # subscribe to. If the archive is down at startup there is nothing to
-    # acquire against, so this is the one place we wait for it.
+    # subscribe to, and the run must be registered so every sample this
+    # process archives can be numbered within it. If the archive is down at
+    # startup there is nothing to acquire against, so this is the one place we
+    # wait for it.
     tags: list[dict] = []
-    while not tags:
+    run_id: int | None = None
+    while not tags or run_id is None:
         try:
             await sink.connect()
             tags = await sink.tags()
-        except SinkUnavailable as exc:
+            run_id = await sink.register_run(config.instance)
+        except (SinkUnavailable, psycopg.Error) as exc:
             log.warning("waiting for the archive to read tag configuration: %s", exc)
             await asyncio.sleep(config.reconnect_delay_s)
-    log.info("tag configuration: %d subscribable tags", len(tags))
+    compress = {t["id"]: t for t in tags if t.get("compress")}
+    log.info("tag configuration: %d subscribable tags, %d compressed; "
+             "collector run %d", len(tags), len(compress), run_id)
 
-    pipeline = Pipeline(config, sink, buffer, stream)
+    pipeline = Pipeline(config, sink, buffer, stream, run_id=run_id,
+                        compress_tags=compress)
     pipeline.link_up = True
     pipeline.last_forward_monotonic = time.monotonic()
     if buffer.depth:
         log.info("%d samples were left buffered by a previous run", buffer.depth)
         await pipeline.drain()
 
+    def publish_gap(subscription_id: int, sequence_number: int, missed: int) -> None:
+        stream.emit(ev.GAP_DETECTED, subscription=subscription_id,
+                    sequence_number=sequence_number, missed=missed)
+
+    def refused(tag: str, why: str) -> None:
+        stream.emit(ev.VALUE_REFUSED, tag=tag, reason=why)
+
+    session = ReadOnlySession(config.endpoint, pipeline.on_sample,
+                              on_publish_gap=publish_gap, on_drop=refused)
+
     health_ids = await _health_tag_ids(config.dsn)
     publisher = HealthPublisher(pipeline, health_ids, config.health_interval_s,
-                                instance=config.instance)
+                                instance=config.instance, session=session)
     try:
         await _register_instance(config.dsn, config.instance)
     except psycopg.Error as exc:
         log.warning("could not register instance %s: %s", config.instance, exc)
 
-    session = ReadOnlySession(config.endpoint, pipeline.on_sample)
-
     log.info("collector instance: %s", config.instance)
     from collector.event_server import serve as serve_events
-    await asyncio.gather(
-        pipeline.run_forwarder(),
-        _health_loop(publisher, pipeline),
-        _heartbeat(config.dsn, config.instance, pipeline),
-        serve_events(stream, pipeline, config.instance,
-                     config.event_host, config.event_port),
-        _opcua_supervisor(session, tags, config.reconnect_delay_s),
-    )
+    tasks = [
+        asyncio.create_task(pipeline.run_forwarder()),
+        asyncio.create_task(_health_loop(publisher, pipeline)),
+        asyncio.create_task(_heartbeat(config.dsn, config.instance, pipeline)),
+        asyncio.create_task(serve_events(stream, pipeline, config.instance,
+                                         config.event_host, config.event_port,
+                                         session=session)),
+        asyncio.create_task(_opcua_supervisor(session, tags,
+                                              config.reconnect_delay_s)),
+    ]
+
+    # Stop cleanly on SIGTERM or SIGINT: whatever is still in memory -- the
+    # queue between the subscription and the forwarder, and any compressor's
+    # open segment -- goes to the durable buffer and is drained by the next
+    # start. Without this, `kill <pid>` lost it. (A SIGKILL cannot be caught;
+    # what it costs is bounded by the batch linger and, for compressed tags, by
+    # max_time. See pipeline.py.)
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(signum, stop.set)
+    stopper = asyncio.create_task(stop.wait())
+    done, _ = await asyncio.wait([stopper, *tasks],
+                                 return_when=asyncio.FIRST_COMPLETED)
+    for task in done:
+        if (task is not stopper and not task.cancelled()
+                and task.exception() is not None):
+            log.error("collector task failed: %r", task.exception())
+    log.info("stopping")
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    await session.disconnect()
+    flushed = await pipeline.flush_to_buffer()
+    log.info("stopped; %d in-flight samples flushed to the buffer, buffer depth "
+             "%d", flushed, buffer.depth)
+    await sink.close()
+    buffer.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -195,10 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     if overrides:
         config = CollectorConfig(**{**config.__dict__, **overrides})
 
-    try:
-        asyncio.run(run(config))
-    except KeyboardInterrupt:
-        log.info("stopped")
+    asyncio.run(run(config))
     return 0
 
 

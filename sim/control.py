@@ -11,7 +11,9 @@ this project does not have one anywhere. (§303, §315)
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import datetime as dt
+
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from sim import tags as tagdefs
@@ -39,6 +41,31 @@ def build_app(sim: SimulatorServer) -> FastAPI:
     @app.get("/status")
     async def status() -> dict:
         return sim.status()
+
+    @app.get("/scans")
+    async def scans(after: int = Query(0, ge=0),
+                    up_to: int | None = Query(None, ge=0)) -> dict:
+        """The server's own scan timing: work time and lateness against
+        schedule, over scans numbered (after, up_to]. Read-only."""
+        return sim.scan_summary(after, up_to)
+
+    @app.get("/ledger")
+    async def ledger(since: str, until: str, tags: str | None = None) -> dict:
+        """What this server published that a subscription must report, per
+        tag, between two instants: source timestamps in microseconds since the
+        Unix epoch. See sim/ledger.py. Read-only."""
+        try:
+            lo = dt.datetime.fromisoformat(since)
+            hi = dt.datetime.fromisoformat(until)
+        except ValueError as exc:
+            raise HTTPException(400, f"bad timestamp: {exc}") from exc
+        if lo.tzinfo is None or hi.tzinfo is None:
+            raise HTTPException(400, "timestamps must carry a time zone")
+        names = [t for t in (tags or "").split(",") if t] or None
+        oldest = sim.ledger.oldest_us
+        return {"since": lo.isoformat(), "until": hi.isoformat(),
+                "ledger_oldest_us": oldest,
+                "tags": sim.ledger.window(lo, hi, names)}
 
     @app.get("/tags")
     async def list_tags() -> list[dict]:

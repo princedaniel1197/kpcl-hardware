@@ -7,11 +7,12 @@ at an actual PI Web API OMF endpoint is a URL and a token rather than a code
 change.
 
 WHAT THIS PRESERVES. A data value's index is its SourceTime, and the receiver
-writes it to `sample.source_ts`; ServerTime goes to `server_ts`. Quality is the
-numeric StatusCode as sent. A value of null is stored as NULL and never as
-zero — the OMF specification would default an omitted numeric property to 0, so
-the emitter always sends the property explicitly and the receiver rejects a
-message that omits it.
+writes it to `sample.source_ts`; ServerTime goes to `server_ts`, and a null
+ServerTime is stored as NULL. Quality is the numeric StatusCode as sent. A value
+of null is stored as NULL and never as zero. The OMF specification would default
+an omitted property to its type's default -- 0 for a number, which for Quality
+means Good -- so the emitter always sends Value, ServerTime and Quality
+explicitly and the receiver rejects a value that omits any of them.
 """
 
 from __future__ import annotations
@@ -101,9 +102,24 @@ class Receiver:
             raise OmfError(
                 f"{container}: Value was omitted. OMF would default it to 0; "
                 "send an explicit null for a sample that carries no value")
+        if "Quality" not in v:
+            # An omitted integer property defaults to 0, and 0 is Good. A value
+            # whose quality was not sent is not a Good value (§318).
+            raise OmfError(
+                f"{container}: Quality was omitted. OMF would default it to 0, "
+                "which is Good; a value must say what its quality is")
+        if "ServerTime" not in v:
+            raise OmfError(
+                f"{container}: ServerTime was omitted; send an explicit null "
+                "when no server stamped the value")
         source_ts = _parse(v["SourceTime"])
-        server_ts = _parse(v["ServerTime"]) if v.get("ServerTime") else source_ts
-        quality = int(v.get("Quality", 0))
+        # NULL when the sender says no server stamped it. Never SourceTime: a
+        # server_ts equal to source_ts is the fingerprint of a substituted
+        # timestamp, and T-07 would rightly report one.
+        server_ts = _parse(v["ServerTime"]) if v["ServerTime"] is not None else None
+        if v["Quality"] is None:
+            raise OmfError(f"{container}: Quality was null")
+        quality = int(v["Quality"])
         value = v["Value"]
         if value is not None:
             value = float(value)

@@ -39,11 +39,26 @@ import psycopg
 from asyncua import ua
 
 GOOD = int(ua.StatusCodes.Good)
-BAD_INPUT = int(ua.StatusCodes.BadDependentValueChanged)
+# StatusCodes chosen for what they MEAN, because a PI or OPC UA engineer reads
+# the code before the reason text. An earlier version used
+# UncertainSubstituteValue for an Uncertain input -- "an operational value that
+# was manually overwritten", the opposite of what this engine does -- and
+# BadDependentValueChanged, which is about writes to a device.
+#
+#   a Bad input      -> BadAggregateInvalidInputs, "could not be derived due
+#                       to invalid data inputs"
+#   no data at all   -> BadNoData
+#   division by zero -> BadOutOfRange
+#   an Uncertain input -> UncertainSubNormal, "derived from multiple sources and
+#                       has less than the required number of Good sources"
+#   result outside the validity range -> UncertainEngineeringUnitsExceeded,
+#                       "outside of the range of values defined for this
+#                       parameter"
+BAD_INPUT = int(ua.StatusCodes.BadAggregateInvalidInputs)
 BAD_NO_DATA = int(ua.StatusCodes.BadNoData)
 BAD_DIVIDE = int(ua.StatusCodes.BadOutOfRange)
-UNCERTAIN_INPUT = int(ua.StatusCodes.UncertainSubstituteValue)
-UNCERTAIN_VALIDITY = int(ua.StatusCodes.UncertainSensorNotAccurate)
+UNCERTAIN_INPUT = int(ua.StatusCodes.UncertainSubNormal)
+UNCERTAIN_VALIDITY = int(ua.StatusCodes.UncertainEngineeringUnitsExceeded)
 
 CLASSIFICATIONS = ("measured", "calculated", "derived_statistical", "ai_ml")
 

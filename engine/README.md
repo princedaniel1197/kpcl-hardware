@@ -130,7 +130,7 @@ Severity is assigned on meaning, not convenience:
 |---|---|---|
 | range | `BadOutOfRange` | outside what the instrument can represent — not a measurement at all |
 | stale | `BadNoCommunication` | nothing arriving; there is no measurement to judge |
-| rate of change | `UncertainSensorNotAccurate` | the reading may be real; what is doubted is whether to believe it |
+| rate of change | `Uncertain` | the reading may be real; what is doubted is whether to believe it. OPC UA has no specific code for implausible rate, and the one used before this review (`UncertainSensorNotAccurate`) claims the value is at a sensor limit, which the rule does not know |
 | cross-tag | `UncertainSubNormal` | two instruments disagree; which is wrong is not yet known |
 | frozen | `UncertainLastUsableValue` | a steady process and a stuck transmitter look alike |
 

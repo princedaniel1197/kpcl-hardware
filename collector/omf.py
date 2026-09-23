@@ -90,7 +90,8 @@ def type_message() -> list[dict]:
                 "ServerTime": {
                     "type": "string", "format": "date-time",
                     "name": "Server timestamp",
-                    "description": "When the value went on the wire",
+                    "description": ("When the value went on the wire; null "
+                                    "when no server stamped it"),
                 },
                 "Value": {
                     "type": "number", "format": "float64",
@@ -152,7 +153,10 @@ def data_message(samples: list[Sample]) -> list[dict]:
     for s in samples:
         by_container.setdefault(s.tag_name, []).append({
             "SourceTime": _iso(s.source_ts),
-            "ServerTime": _iso(s.server_ts),
+            # Explicitly null when no server stamped the value. Never filled
+            # from SourceTime, and never omitted -- an omitted property takes
+            # the type's default.
+            "ServerTime": _iso(s.server_ts) if s.server_ts is not None else None,
             # ALWAYS present. Omitting it would let the endpoint substitute the
             # type's default of 0 for a Bad sample.
             "Value": s.value,

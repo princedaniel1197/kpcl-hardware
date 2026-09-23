@@ -21,15 +21,37 @@ PACKAGE = Path(__file__).parent
 
 # OPC UA write surface. `set_value` and `set_attribute` are asyncua's older
 # aliases for write_value/write_attribute and are just as much a write.
+# Creating or deleting nodes and references changes the server's address space,
+# which is a write to the source in every sense that matters (Part 4, the
+# NodeManagement service set), so those are forbidden too.
 FORBIDDEN_CALLS = {
     "write_value", "write_attribute", "write_params", "write_attributes",
-    "set_value", "set_attribute", "set_writable", "write_data_type_definition",
-    "write_array_dimensions", "write_value_rank", "call_method",
+    "set_value", "set_attribute", "set_writable", "set_read_only",
+    "write_data_type_definition", "write_array_dimensions", "write_value_rank",
+    "call_method", "call",
+    "add_nodes", "add_variable", "add_object", "add_method", "add_folder",
+    "add_property", "add_object_type", "add_variable_type", "add_data_type",
+    "add_reference_type", "add_references", "add_reference",
+    "delete_nodes", "delete_references", "delete_reference",
+    "history_update", "update_history",
 }
 
 
 def source_files() -> list[Path]:
-    return sorted(p for p in PACKAGE.glob("*.py") if not p.name.startswith("test_"))
+    """Every Python file in the package, at any depth. A subpackage added later
+    must not escape inspection because the search only looked one level down."""
+    return sorted(p for p in PACKAGE.rglob("*.py")
+                  if not p.name.startswith("test_") and "__pycache__" not in p.parts)
+
+
+def test_the_search_descends_into_subpackages(tmp_path, monkeypatch):
+    """The guard on the guard, for depth: a file one directory down is found."""
+    nested = tmp_path / "util"
+    nested.mkdir()
+    (nested / "helper.py").write_text("x = 1\n")
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "PACKAGE", tmp_path)
+    assert [p.name for p in source_files()] == ["helper.py"]
 
 
 def test_there_are_source_files_to_check():

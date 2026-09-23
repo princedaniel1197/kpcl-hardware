@@ -115,12 +115,105 @@ def test_decoded_view_exposes_transit(conn, tag_id):
         assert klass == "Good"
 
 
-def test_source_and_server_timestamps_are_both_required(conn, tag_id):
+def test_source_timestamp_is_required(conn, tag_id):
     with conn.cursor() as cur:
         with pytest.raises(psycopg.errors.NotNullViolation):
             cur.execute("INSERT INTO sample (tag_id, source_ts, server_ts, value,"
-                        " quality) VALUES (%s,%s,NULL,%s,%s)",
+                        " quality) VALUES (%s,NULL,%s,%s,%s)",
                         (tag_id, T0, 1.0, GOOD))
+
+
+def test_an_absent_server_timestamp_is_stored_as_absent(conn, tag_id):
+    """Migration 014. When no server stamped a value, the row says so with
+    NULL. It is not filled from source_ts -- identical timestamps are the
+    fingerprint of a substituted receipt time -- and there is no default that
+    could fill it silently."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO sample (tag_id, source_ts, value, quality)"
+                    " VALUES (%s,%s,%s,%s)", (tag_id, T0, 1.0, GOOD))
+        cur.execute("SELECT server_ts, transit FROM sample_decoded"
+                    " WHERE tag_id = %s", (tag_id,))
+        assert cur.fetchone() == (None, None)
+
+
+def test_run_and_sequence_come_together(conn, tag_id):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO collector_run (instance) VALUES ('test')"
+                    " RETURNING id")
+        run = cur.fetchone()[0]
+        with pytest.raises(psycopg.errors.CheckViolation):
+            cur.execute("INSERT INTO sample (tag_id, source_ts, server_ts, value,"
+                        " quality, collector_run) VALUES (%s,%s,%s,1,0,%s)",
+                        (tag_id, T0, T0 + dt.timedelta(milliseconds=5), run))
+
+
+def _numbered(cur, tag_id, run, seqs, offset_s=0):
+    for n in seqs:
+        ts = T0 + dt.timedelta(seconds=n + offset_s)
+        cur.execute("INSERT INTO sample (tag_id, source_ts, server_ts, value,"
+                    " quality, collector_run, seq) VALUES (%s,%s,%s,%s,0,%s,%s)"
+                    " ON CONFLICT DO NOTHING",
+                    (tag_id, ts, ts + dt.timedelta(milliseconds=30), float(n),
+                     run, n))
+
+
+def test_a_hole_in_a_runs_sequence_is_found(conn, tag_id):
+    """B1: a sample the collector meant to write that is not in the archive."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO collector_run (instance) VALUES ('test')"
+                    " RETURNING id")
+        run = cur.fetchone()[0]
+        _numbered(cur, tag_id, run, [1, 2, 3, 6, 7])
+        cur.execute("SELECT prev_seq, next_seq, missing, held_by_other_runs,"
+                    " recorded_as_lost FROM sample_seq_gap WHERE collector_run=%s",
+                    (run,))
+        assert cur.fetchall() == [(3, 6, 2, 0, 0)]
+
+
+def test_a_hole_another_collector_filled_says_so(conn, tag_id):
+    """Two collectors, first write wins: the primary's hole is the secondary's
+    row. The view must say so rather than report a loss."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO collector_run (instance) VALUES ('secondary'),"
+                    " ('primary') RETURNING id")
+        secondary, primary = [r[0] for r in cur.fetchall()]
+        _numbered(cur, tag_id, secondary, [4, 5])       # got there first
+        _numbered(cur, tag_id, primary, [1, 2, 3, 4, 5, 6])
+        cur.execute("SELECT missing, held_by_other_runs FROM sample_seq_gap"
+                    " WHERE collector_run=%s", (primary,))
+        assert cur.fetchall() == [(2, 2)]
+
+
+def test_a_hole_the_loss_ledger_explains_says_so(conn, tag_id):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO collector_run (instance) VALUES ('test')"
+                    " RETURNING id")
+        run = cur.fetchone()[0]
+        _numbered(cur, tag_id, run, [1, 2, 5])
+        cur.execute("INSERT INTO collector_loss (collector_run, tag_id,"
+                    " first_source_ts, last_source_ts, first_seq, last_seq,"
+                    " samples, reason, detected_at) VALUES"
+                    " (%s,%s,%s,%s,3,4,2,'buffer_overflow',now())",
+                    (run, tag_id, T0 + dt.timedelta(seconds=3),
+                     T0 + dt.timedelta(seconds=4)))
+        cur.execute("SELECT missing, recorded_as_lost FROM sample_seq_gap"
+                    " WHERE collector_run=%s", (run,))
+        assert cur.fetchall() == [(2, 2)]
+
+
+def test_a_tag_cannot_be_compressed_without_its_parameters(conn):
+    with conn.cursor() as cur:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            cur.execute("INSERT INTO tag (name, comp_dev, compress) VALUES"
+                        " ('TEST_COMPRESS_NO_MAXTIME', 1.0, true)")
+
+
+def test_a_tag_has_no_default_source_path(conn):
+    """C9: the column default quietly filed Unit 2's tags under Unit1."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO tag (name) VALUES ('TEST_NO_PATH')"
+                    " RETURNING source_path")
+        assert cur.fetchone()[0] is None
 
 
 def test_quality_is_required(conn, tag_id):
