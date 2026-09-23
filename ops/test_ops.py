@@ -206,8 +206,13 @@ def test_a_threshold_rule_will_not_fire_on_a_bad_sample(conn):
     bad = _tag_with(conn, [(60, None, BAD), (20, None, BAD)])
     assert not alerts.evaluate(conn, _rule(bad, ">", -1e9), NOW)[0]
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM sample s USING tag t WHERE t.id = s.tag_id"
-                    " AND t.name = 'TEST_ALERT_TAG'")
+        # Bounded by time, so only the chunk holding these samples is touched.
+        # Without the bound the join reached every chunk, and once the archive's
+        # older chunks were compressed the delete asked TimescaleDB to
+        # decompress ten million rows, which it refuses.
+        cur.execute("DELETE FROM sample WHERE source_ts BETWEEN %s AND %s AND"
+                    " tag_id = (SELECT id FROM tag WHERE name = 'TEST_ALERT_TAG')",
+                    (NOW - dt.timedelta(hours=1), NOW))
         cur.execute("DELETE FROM tag WHERE name = 'TEST_ALERT_TAG'")
     good = _tag_with(conn, [(60, 3.0, 0), (20, 4.0, 0)])
     firing, detail, value, _ = alerts.evaluate(conn, _rule(good, ">", -1e9), NOW)

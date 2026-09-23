@@ -141,6 +141,15 @@ twelve-hour-old values before); and of ISA-101's four display levels, two are
 built (§469). The criterion — a colleague describing an outage unaided — has
 still not been attempted.
 
+Later on 23 September the token moved from `sessionStorage` to `localStorage`,
+at the user's request, so a new tab does not ask for it again; Sign out and any
+401 still clear it. Moving it exposed a defect: with the token gone
+mid-session, the dashboard offered an empty WebSocket subprotocol, the browser
+threw, and the whole page went blank. It now opens no socket without a token,
+and a token held from before the change is carried over. Checked in the browser:
+an existing session stayed signed in, a new tab opened signed in, no console
+errors.
+
 ## Signature
 
 | Role | Name | Date |

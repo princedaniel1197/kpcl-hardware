@@ -82,8 +82,13 @@ async def measure(seconds: float, tags: list[dict], workdir: Path
     session = ReadOnlySession(ENDPOINT, on_sample, source_deadband=False)
     forwarder = asyncio.create_task(pipeline.run_forwarder())
     await session.connect(tags)
-    print(f"capturing {seconds:.0f}s from {len(session.subscribed)} tags through "
-          f"the live pipeline, {len(compressed)} compressed ...")
+    subscribed = set(session.subscribed)
+    unserved = sorted(t["name"] for t in tags if t["name"] not in subscribed)
+    print(f"capturing {seconds:.0f}s from {len(subscribed)} tags through the live "
+          f"pipeline, {sum(1 for t in compressed.values() if t['name'] in subscribed)}"
+          f" of them compressed ...")
+    if unserved:
+        print(f"not served by the source, so not measured: {', '.join(unserved)}")
     await asyncio.sleep(seconds)
     await session.disconnect()
     # What a clean shutdown does: the compressors' open segments go out too.
@@ -130,10 +135,16 @@ def main() -> int:
           f"{'CompDev':>8} {'worst err':>10}  verdict")
     print("-" * 80)
     results = []
+    too_few = []
     for tag in tags:
         series = dedupe(raw[tag["id"]])
         kept = archived[tag["id"]]
-        if tag["comp_dev"] is None or len(series) < 10:
+        if tag["comp_dev"] is None or not raw[tag["id"]] and not kept:
+            continue
+        if len(series) < 10:
+            # Too little to say anything about a ratio -- a tag that stayed
+            # Bad, or never changed. Named, not silently left out.
+            too_few.append(f"{tag['name']} ({len(series)})")
             continue
         worst, _ = reconstruction_error(series, [Archived(s, "") for s in kept])
         ratio = len(series) / len(kept) if kept else 0.0
@@ -141,16 +152,19 @@ def main() -> int:
         ok = worst <= bound + 1e-9
         results.append((tag["name"], ratio, worst, bound, ok))
         print(f"{tag['name']:<20} {len(series):>6} {len(kept):>6} "
-              f"{ratio:>7.1f}: {bound:>8.3f} {worst:>10.4f}  "
+              f"{ratio:>6.1f}:1 {bound:>8.3f} {worst:>10.4f}  "
               f"{'OK' if ok else 'OVER BOUND'}")
 
     print()
     within = [r for r in results if r[4]]
     print(f"  tags within CompDev        : {len(within)}/{len(results)}")
     print(f"  samples absorbed as repeats: {pipeline.duplicate_ts}")
+    if too_few:
+        print(f"  too few samples to judge   : {', '.join(too_few)}")
     if results:
-        total_raw = sum(len(dedupe(raw[t["id"]])) for t in tags if t["comp_dev"])
-        total_kept = sum(len(archived[t["id"]]) for t in tags if t["comp_dev"])
+        reported = {r[0] for r in results}
+        total_raw = sum(len(dedupe(raw[t["id"]])) for t in tags if t["name"] in reported)
+        total_kept = sum(len(archived[t["id"]]) for t in tags if t["name"] in reported)
         print(f"  overall                    : {total_raw:,} raw -> "
               f"{total_kept:,} archived, {total_raw / max(total_kept, 1):.1f}:1")
         best = max(results, key=lambda r: r[1])

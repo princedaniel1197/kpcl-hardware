@@ -521,10 +521,11 @@ def compression(conn) -> Result:
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(result.stdout)
     lines = result.stdout.splitlines()
-    summary = [l.strip() for l in lines if l.strip().startswith(
-        ("tags within", "overall", "best ratio", "lowest ratio"))]
+    summary = [" ".join(l.split()).replace(" :", ":") for l in lines
+               if l.strip().startswith(("tags within", "too few", "overall",
+                                        "best ratio", "lowest ratio"))]
     ms_temp = next((l.split() for l in lines if l.startswith("U1_MS_TEMP")), None)
-    ratio_ok = ms_temp is not None and float(ms_temp[3].rstrip(":")) > 10.0
+    ratio_ok = ms_temp is not None and float(ms_temp[3].split(":")[0]) > 10.0
     compressed = _query(conn, "SELECT count(*) FROM tag WHERE compress")[0][0]
     evidence = unit_tail + summary + [
         f"U1_MS_TEMP live ratio: {ms_temp[3] if ms_temp else 'not measured'} "

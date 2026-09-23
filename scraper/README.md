@@ -117,6 +117,10 @@ up per station per IST day. It is a cross-tag consistency check on real data:
 on the captured page RTPS published a total of 1190 MW with all eight units at
 0 MW, and the check says so.
 
+On the live feed it has caught the site itself: at 05:15 UTC on 23 September
+SLDC republished the BTPS and YTPS totals unchanged from 05:11 while every unit
+had moved, and the two readings are `inconsistent` by 31 and 38 MW.
+
 `sldc_poll_log` is what makes "the recorder is alive but the site is down"
 distinguishable from "the recorder is dead". Both look like an absence of rows
 in `sldc_generation`; only one of them leaves failed attempts in the log.

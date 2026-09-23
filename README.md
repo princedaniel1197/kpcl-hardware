@@ -28,14 +28,15 @@ is finished when its test has been run and its result recorded in
 | 11 Redundancy | **passed** | [record](fat/records/stage-11-redundancy.md) |
 | 12 The visualisation | **built** — its criterion is a human judgement | [record](fat/records/stage-12-visualisation.md) |
 | 13 Remaining requirements | **passed** | [record](fat/records/stage-13-remaining-requirements.md) |
-| 14 The FAT | **built** — [plan](fat/ITP.md), [procedure](fat/procedure.md), reports in `fat/reports/` | [record](fat/records/stage-14-fat.md) |
+| 14 The FAT | **automated tests 15 of 15** ([report](fat/reports/FAT-20260923T053731Z.md)); hold and witness points await signature — [plan](fat/ITP.md), [procedure](fat/procedure.md) | [record](fat/records/stage-14-fat.md) |
 
 **A code review on 23 September 2026** found claims the code did not back and
 three FAT tests that could not fail. What it found, what was changed and what
 was measured afterwards is in
 [`fat/records/review-2026-09-23.md`](fat/records/review-2026-09-23.md); the
 stage records it affects carry dated corrections. Stages 3 and 11 were re-run
-against the changed code and passed.
+against the changed code and passed, and the FAT was re-run on a clean tree and
+passed 15 of 15.
 
 Two things are outstanding and both need a person, not more code:
 

@@ -7,8 +7,11 @@ make ui       # Vite dev server on :5173, proxying /api and /ws
 ```
 
 Every API call is authenticated (§509), so the first screen asks for a token.
-It is kept in `sessionStorage` — gone when the tab closes — sent as a bearer
-header, and on the WebSocket as a subprotocol; it never appears in a URL.
+It is kept in `localStorage` until **Sign out** or until the API refuses it
+(revoked or expired) — so anyone using that browser profile can open the
+dashboard — and is sent as a bearer header, and on the WebSocket as a
+subprotocol; it never appears in a URL. Revoke a token with
+`python -m ops.access revoke NAME`.
 
 Built last, deliberately. It hangs off real events from a working system; built
 first it would have been a nice interface over nothing.

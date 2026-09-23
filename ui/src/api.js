@@ -5,18 +5,30 @@
 // or drops the point so a line can close over it.
 //
 // Every request carries the principal's bearer token (§509). The token lives in
-// sessionStorage: it is gone when the tab closes, and it is never put in a URL.
+// localStorage, so it survives closing the tab: signing in on every new tab was
+// a nuisance on a demonstration laptop. It lasts until Sign out, or until the
+// API refuses it (revoked or expired), which clears it. The cost: anyone using
+// this browser profile can open the dashboard. It is never put in a URL.
 
 const TOKEN_KEY = 'crpms.token'
 export const SUBPROTOCOL = 'crpms.bearer'
 
 export const getToken = () => {
-  try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null }
+  try {
+    // A token signed in before 23 Sep 2026 was kept in sessionStorage; move it
+    // rather than ask for it again.
+    const earlier = sessionStorage.getItem(TOKEN_KEY)
+    if (earlier) {
+      sessionStorage.removeItem(TOKEN_KEY)
+      if (!localStorage.getItem(TOKEN_KEY)) localStorage.setItem(TOKEN_KEY, earlier)
+    }
+    return localStorage.getItem(TOKEN_KEY)
+  } catch { return null }
 }
 export const setToken = (token) => {
   try {
-    if (token) sessionStorage.setItem(TOKEN_KEY, token)
-    else sessionStorage.removeItem(TOKEN_KEY)
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else localStorage.removeItem(TOKEN_KEY)
   } catch { /* storage unavailable: the token lasts as long as the page */ }
 }
 
@@ -55,11 +67,17 @@ export function connectEvents(onEvent, onState) {
   let retry = null
 
   const open = () => {
+    const token = getToken()
+    // No token, no socket. An empty subprotocol is not merely refused by the
+    // server: the browser throws on it, which took the whole dashboard down
+    // when the token disappeared mid-session. The polls meet the same missing
+    // token as a 401 and sign the viewer out.
+    if (!token) { onState?.('disconnected'); return }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     // A browser cannot set an Authorization header on a WebSocket; the token
     // travels as the second offered subprotocol, never in the URL.
     socket = new WebSocket(`${proto}://${location.host}/ws/events`,
-                           [SUBPROTOCOL, getToken() ?? ''])
+                           [SUBPROTOCOL, token])
     socket.onopen = () => onState?.('connected')
     socket.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data)) } catch { /* ignore malformed */ }

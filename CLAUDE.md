@@ -157,14 +157,14 @@ A code review on 23 September 2026 found claims the code did not back and three
 FAT tests that could not fail. Everything it raised has been fixed or answered,
 with measurements, in `fat/records/review-2026-09-23.md`; affected stage records
 carry dated corrections; Stages 3 and 11 were re-run and passed; the FAT was
-re-run on a clean tree.
+re-run on a clean tree and passed 15 of 15.
 
 | Stage | State |
 |---|---|
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
 | 10 hardware rig | firmware **compiles** (TCP and RTU builds, 23 Sep); verified against a stand-in; **the acceptance test needs the physical rig**, which has not been assembled, and nothing has been flashed |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
-| 14 FAT | plan, procedure and runner built; every automated test states what would make it fail; hold and witness points await signature |
+| 14 FAT | automated FAT **15 of 15** on a clean tree, 23 Sep 05:37 UTC (`fat/reports/FAT-20260923T053731Z.md`); every automated test states what would make it fail; hold and witness points await signature |
 
 Running the system now takes `make sim`, `make collector`, `make engine` (KPIs,
 quality rules and event frames — nothing computed them continuously before 23

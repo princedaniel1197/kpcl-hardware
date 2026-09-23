@@ -2,24 +2,24 @@ capturing 90s from 20 tags through the live pipeline, 27 compressed ...
 
 tag                     raw   arch    ratio  CompDev  worst err  verdict
 --------------------------------------------------------------------------------
-RIG_AMBIENT_TEMP         69     27     2.6:    0.200     0.2000  OK
-RIG_CURRENT              84     11     7.6:    0.020     0.0190  OK
-RIG_SUPPLY_V             90     25     3.6:    0.050     0.0492  OK
-RIG_VIBRATION            89     59     1.5:    0.100     0.0975  OK
-U1_AUX_POWER            181      9    20.1:    0.240     0.2352  OK
-U1_BEARING_VIB          181    157     1.2:    0.050     0.0493  OK
-U1_COAL_FLOW            181      8    22.6:    1.800     1.7844  OK
-U1_CONDENSER_VAC        181      6    30.2:    3.300     3.2668  OK
-U1_DRUM_PRESS           181      7    25.9:    0.900     0.8488  OK
-U1_FEEDWATER_FLOW       181      7    25.9:    7.500     7.0363  OK
-U1_GEN_STATOR_TEMP      181      8    22.6:    0.750     0.7359  OK
-U1_MS_PRESS             181      6    30.2:    0.750     0.7451  OK
-U1_MS_TEMP              181      5    36.2:    2.400     2.2935  OK
-U1_MW                   181     23     7.9:    1.000     0.9737  OK
-U1_TURB_SPEED           181      7    25.9:    3.600     3.5431  OK
+RIG_AMBIENT_TEMP         71     27     2.6:    0.200     0.2000  OK
+RIG_CURRENT              85     10     8.5:    0.020     0.0196  OK
+RIG_SUPPLY_V             91     22     4.1:    0.050     0.0495  OK
+RIG_VIBRATION            91     62     1.5:    0.100     0.0900  OK
+U1_AUX_POWER            181     10    18.1:    0.240     0.2373  OK
+U1_BEARING_VIB          181    150     1.2:    0.050     0.0485  OK
+U1_COAL_FLOW            181      8    22.6:    1.800     1.7213  OK
+U1_CONDENSER_VAC        181      5    36.2:    3.300     3.2932  OK
+U1_DRUM_PRESS           181      6    30.2:    0.900     0.8307  OK
+U1_FEEDWATER_FLOW       181     10    18.1:    7.500     7.4281  OK
+U1_GEN_STATOR_TEMP      181     12    15.1:    0.750     0.7496  OK
+U1_MS_PRESS             181     10    18.1:    0.750     0.7310  OK
+U1_MS_TEMP              181      8    22.6:    2.400     2.3835  OK
+U1_MW                   173     27     6.4:    1.000     0.9990  OK
+U1_TURB_SPEED           181      9    20.1:    3.600     3.0391  OK
 
   tags within CompDev        : 15/15
   samples absorbed as repeats: 0
-  overall                    : 2,324 raw -> 366 archived, 6.3:1
-  best ratio                 : U1_MS_TEMP at 36.2:1
+  overall                    : 2,322 raw -> 377 archived, 6.2:1
+  best ratio                 : U1_CONDENSER_VAC at 36.2:1
   lowest ratio               : U1_BEARING_VIB at 1.2:1  (correct for a noisy tag)

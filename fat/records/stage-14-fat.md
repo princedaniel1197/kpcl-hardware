@@ -155,3 +155,50 @@ Re-run alone: 15 of 15.
 The same run measured T-12 at **0.027 % of one core per subscribed tag** (budget
 0.5 %) and T-04 at 8,176 of 8,176 samples — over a 6-minute window, which is why
 it is not the acceptance report.
+
+### Acceptance run of 23 September, 05:37 UTC — 15 of 15
+
+`FAT-20260923T053731Z.md`, from a clean tree at `1b0b8ce`, 506 s. **15 of 15
+automated tests passed.** Five hold and witness points are outstanding, as they
+should be: T-08, T-09 and T-17 await signature against their recorded runs, and
+T-15 and T-16 need a witness.
+
+| Ref | Measured |
+|---|---|
+| T-01 | P95 1.192 s over 1,000 observations; database clock minus host clock −0.4 ms |
+| T-02 | 70 ms worst of 5, 86,400 rows, over 11,125,193 samples |
+| T-03 | 2.5 s interval; API 27 ms worst of 10 |
+| T-04 | 79,200 of 79,200 published samples archived over 04:39:20–05:39:20 UTC; 61 of 61 minutes |
+| T-05 | forced Bad and Uncertain archived with their own codes; all 15 Stage 6 checks, frozen included |
+| T-06 | 0 of 201,247 Bad samples carry a value |
+| T-07 | 0 of 911,414 comparable rows with server_ts ≤ source_ts |
+| T-10 | 15 of 15 within CompDev in the live path; U1_MS_TEMP 22.6:1 |
+| T-11 | 5 of 5 recent frames with all six milestones |
+| T-12 | 0.012 % of one core per subscribed tag (budget 0.5 %); scan work P95 0.98 ms attached, 0.60 ms detached |
+| T-13, T-14, T-18, T-19, T-20 | pass; 29 live-API access tests |
+
+T-04's window starts 8 minutes after the 04:27 run ended, so its T-12 detach is
+not in it; this run's own T-12 detach came after T-04 measured.
+
+Found by reading the report, and fixed afterwards. None changes a result; the
+report is kept as the run produced it:
+
+- **T-10's ratios were printed as `22.6:`**, the `1` lost to a column width in
+  `collector/compression_report.py`. Now `22.6:1`.
+- **The compression table silently left out a tag.** RIG_HUB_TEMP is
+  compressed, but the stand-in reports it Bad, so it had fewer than ten samples
+  and was skipped without a word. "15/15 within CompDev" was true of the tags
+  shown, and did not say one was not shown. It is now named on a
+  `too few samples to judge` line, and the overall ratio counts only the tags in
+  the table.
+- **Its header said "20 tags, 27 compressed"** — the 27 included 11 Unit 2
+  tags, which nothing serves. It now counts compressed tags among those
+  subscribed (16) and names the unserved ones.
+- The runner's T-10 summary lines kept the table's padding
+  (`tags within CompDev        : 15/15`); whitespace is now collapsed.
+
+After the run, `ops/test_ops.py::test_a_threshold_rule_will_not_fire_on_a_bad_sample`
+failed once: its clean-up `DELETE FROM sample … USING tag` touched every chunk,
+and since the compression policy had by then compressed 9 of the archive's 11
+chunks, TimescaleDB refused to decompress ten million rows for it. The delete is
+now bounded by time to the test's own chunk. Suite after the fix: 325 passed.
