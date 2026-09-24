@@ -230,9 +230,10 @@ def render(env: dict, results: dict[str, Result], began, ended,
         "proven at 34,700 I/O across 13 sites; every figure here was measured on "
         "one laptop with one simulated unit and a bench rig. It says nothing "
         "about wide-area network behaviour, cross-site time synchronisation, "
-        "per-station licensing, or OT security zoning. The bench rig's firmware "
-        "has run on the board against its real sensors, but the rig has not yet "
-        "been read end to end through the bridge, and Stage 10 has not passed.",
+        "per-station licensing, or OT security zoning. The bench rig passed its "
+        "probe-failure test on real hardware, but its current reading is not "
+        "yet a calibrated measurement, and its relays and run switch are not "
+        "fitted.",
         "",
         "Plant physics is limited to definitional ratios. Cylinder efficiency "
         "and condenser performance require published steam tables and are not "

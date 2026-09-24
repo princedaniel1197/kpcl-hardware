@@ -5,10 +5,13 @@
 | Stage | 10 — The hardware rig |
 | Build plan | `CRPMS_Demonstrator_Build_Plan.md`, Stage 10 |
 | Acceptance criterion | Unplug the temperature probe. Within one scan the tag goes Bad in the archive, the heat-rate equivalent KPI using it goes Bad, and the dashboard shows why. |
-| Date attempted | 2026-09-22 |
-| **Result** | **NOT PASSED — the acceptance test requires the physical rig, which has not been built** |
+| Date attempted | 2026-09-22 (not possible: no rig); run on the bench 2026-09-24 |
+| **Result** | **PASSED on 24 September 2026, run 2, 15:31 UTC**, after run 1 found a defect on the replug. Limits: the current's scale is not verified and its zero drifts (see the 24 September addendum) |
 
-## Why this record says NOT PASSED
+## Why this record said NOT PASSED on 22 September
+
+*Superseded by the 24 September addendum below, which records the test run on the
+real rig. Kept because it is why nothing was claimed before then.*
 
 The criterion is *unplug the temperature probe*. Everything downstream of the
 probe has been built and exercised, but no probe has been unplugged, because
@@ -321,6 +324,62 @@ deleted or edited.
 
 Stage 10 is **not passed** until the test is re-run with that fix and the
 replug publishes nothing unconfirmed.
+
+**The current moved again.** From 15:23:38 the reading fell from 0.88 A to a
+steady 0.23 A (a 1.26 A spike and a supply dip to 11.65 V in the same second),
+yet the user found **all three fans spinning**. Re-zeroed at the next boot
+(2,431.9 mV; just before it, with 12 V off, the old zero read +39 mA) and with
+12 V on again: **0.194–0.213 A**, mean 0.203 A, 47 of 47 Good. Same fans, 0.88 A
+in one boot and 0.20 A in another. The current reading is **not a
+measurement of the fans' current** until the in-series meter check and the
+drift investigation are done; the rig's other points do not depend on it.
+
+### Acceptance test, run 2 — 24 September, 15:31 UTC, with the confirmation fix
+
+| Time (UTC) | RIG_HUB_TEMP in `sample` | MotorThermalRise |
+|---|---|---|
+| 15:31:10.1 | 29.1 °C, Good (last before) | 2.5 °C Good (15:31:34) |
+| 15:31:39.9 | **NULL, BadDeviceFailure (0x808B0000)** — the bridge logged it at 15:31:39.949, the same poll | **Bad, NULL** from 15:31:45, "input HubTemperature (RIG_HUB_TEMP) has no value, BadDeviceFailure"; seven calculations |
+| 15:32:13.9, 15:32:43.7 | NULL, BadDeviceFailure | Bad |
+| 15:32:54.0 | **29.1 °C, Good — the first Good value after the replug**, once two conversions agreed | 2.5 °C Good from 15:32:56 |
+| 15:33:03–15:33:18 | 28.9, 29.1, 29.2, 29.1 °C | Good |
+
+No Bad hub sample in the archive carries a value. RIG_CURRENT (70 samples),
+RIG_SUPPLY_V (72) and RIG_VIBRATION (68) stayed Good throughout.
+**RIG_AMBIENT_TEMP was Bad once**, NULL, at 15:32:48.8 — the moment the hub
+probe went back onto the bus they share — and Good again at 15:32:50.9 after
+two agreeing conversions. Plugging a device into a shared OneWire line can
+corrupt the other device's read; the firmware reported that read as failed,
+with no value, rather than as a temperature. The unplug itself (69 s) did not
+touch the ambient point.
+
+The archive is Bad in the bridge poll that first saw the firmware clear the
+bit; the firmware converts once a second. The physical moment of unplugging
+was not timed, so "within one scan" is measured from the firmware's report,
+not from the hand on the connector.
+
+**The dashboard shows why** — observed at 15:35:15 UTC during a third,
+short unplug for the purpose (RIG_HUB_TEMP NULL, BadDeviceFailure from
+15:34:59.5): the MotorThermalRise card on the Pipeline view turned red, value
+"- - -", with the text "input HubTemperature (RIG_HUB_TEMP) has no value,
+BadDeviceFailure"; the Health tab listed RIG_HUB_TEMP bad with its StatusCode
+(seen in run 1).
+
+### Result
+
+**PASSED.** On the real rig, through real Modbus TCP over WiFi, the bridge, a
+real OPC UA server, the collector and the archive: unplugging the hub probe put
+RIG_HUB_TEMP Bad with no value in the poll that first saw it, MotorThermalRise
+Bad naming the probe from its next calculation, and the dashboard showed why;
+the replug published nothing unconfirmed. What it does **not** show: that the
+rig's current reads the fans' true current (scale unverified, zero drifts
+~25 mA in minutes, and read 0.88 A and 0.20 A for the same three fans in two
+boots), or anything about the relays and run switch, which are not fitted.
+
+Still open, next session: whether the zero drift tracks the USB 5 V rail (the
+ACS712 is ratiometric; its zero is VCC/2), and whether a divider on OUT into
+the ADC's characterised range helps; the in-series meter check; mounting the
+MPU-6500 on a fan frame.
 
 ## Signature
 

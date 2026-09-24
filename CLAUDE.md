@@ -155,8 +155,8 @@ The second list is what makes the first list believable.
 
 ## Status
 
-All fourteen stages built. Twelve have passed their acceptance test; two are
-outstanding and both need a person rather than more code.
+All fourteen stages built. Thirteen have passed their acceptance test; one is
+outstanding and needs a person rather than more code.
 
 A code review on 23 September 2026 found claims the code did not back and three
 FAT tests that could not fail. Everything it raised has been fixed or answered,
@@ -167,7 +167,7 @@ re-run on a clean tree and passed 15 of 15.
 | Stage | State |
 |---|---|
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
-| 10 hardware rig | firmware **flashed and running on the bench** (RTU build, 24 Sep; relays and run switch not yet fitted, 12 V not yet connected); verified against a stand-in; **the acceptance test — the hub probe unplugged, seen downstream — has not been run** |
+| 10 hardware rig | **passed on the bench, 24 Sep** (run 2, after run 1 found a Good 99.3 °C on the probe replug, now fixed). Limits: the current's scale is unverified and its zero drifts; relays and run switch not fitted |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
 | 14 FAT | automated FAT **15 of 15** on a clean tree, 23 Sep 05:37 UTC (`fat/reports/FAT-20260923T053731Z.md`); every automated test states what would make it fail; hold and witness points await signature |
 
@@ -177,12 +177,13 @@ Sep), `make api` and `make ui`; the UI needs a token from `make token`.
 
 Outstanding for a person:
 
-1. Finish the bench rig: flash the WiFi build, read it through the bridge,
-   connect 12 V (USB first), check the current's sign and scale against a
-   meter, and unplug the hub probe. Probe addresses are set. Steps in
-   `fat/records/stage-10-hardware-rig.md`.
-2. Sit someone in front of the visualisation during an outage and record what
+1. Sit someone in front of the visualisation during an outage and record what
    they say. Steps in `fat/records/stage-12-visualisation.md`.
-3. Sign the hold and witness points in the FAT report.
+2. Sign the hold and witness points in the FAT report.
+
+Open on the rig (not blocking a stage): the ACS712 zero drift and unverified
+current scale — check whether the drift tracks the USB 5 V rail and whether a
+divider on OUT into the ADC's characterised range helps; the in-series meter
+check; mount the MPU-6500 on a fan frame; fit the relays and run switch.
 
 Update this section as those close.

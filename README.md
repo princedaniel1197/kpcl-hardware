@@ -24,7 +24,7 @@ is finished when its test has been run and its result recorded in
 | 7 KPI engine | **passed** | [record](fat/records/stage-07-kpi-engine.md) |
 | 8 Event frames | **passed** | [record](fat/records/stage-08-event-frames.md) |
 | 9 OMF emitter | **passed** | [record](fat/records/stage-09-omf.md) |
-| 10 The hardware rig | **built, test blocked** — needs the physical rig | [record](fat/records/stage-10-hardware-rig.md) |
+| 10 The hardware rig | **passed** on the bench, 24 Sep; the current's scale is unverified | [record](fat/records/stage-10-hardware-rig.md) |
 | 11 Redundancy | **passed** | [record](fat/records/stage-11-redundancy.md) |
 | 12 The visualisation | **built** — its criterion is a human judgement | [record](fat/records/stage-12-visualisation.md) |
 | 13 Remaining requirements | **passed** | [record](fat/records/stage-13-remaining-requirements.md) |
@@ -38,13 +38,15 @@ stage records it affects carry dated corrections. Stages 3 and 11 were re-run
 against the changed code and passed, and the FAT was re-run on a clean tree and
 passed 15 of 15.
 
-Two things are outstanding and both need a person, not more code:
+**Stage 10 passed on the bench on 24 September**: the hub probe unplugged on
+the real rig, read over Modbus TCP, went Bad with no value in the archive, the
+motor thermal-rise KPI went Bad naming it, and the dashboard said why. The
+first run found a defect — a replugged probe published 99.3 °C as Good — which
+was fixed and the test re-run. The rig's current reading is not yet a
+measurement: its zero drifts and its scale is unverified.
 
-- **Stage 10** needs the rig run end to end. The firmware has been flashed and
-  runs against the real sensors on the bench (24 Sep; relays and run switch not
-  yet fitted, 12 V not yet connected), and the whole path from a failed sensor
-  to a Bad KPI is demonstrated against a stand-in — but the rig has not yet
-  been read through the bridge, and no probe has been unplugged.
+One thing is outstanding and needs a person, not more code:
+
 - **Stage 12's** criterion is "a colleague who has not seen it can describe what
   happened". Nobody has watched it.
 
