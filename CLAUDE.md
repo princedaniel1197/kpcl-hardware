@@ -116,8 +116,8 @@ Real sensors on a bench, read by an ESP32 publishing Modbus. Available:
 | ACS712 5 A current sensor | 1 | Load current, ~0.46 A total, 185 mV/A |
 | ACS712 30 A current sensor | 1 | Spare — too coarse for this load |
 | DS18B20 probe | 2 | Motor hub temperature, ambient |
-| MPU-6050 | 1 | Vibration, and coast-down detection |
-| 1-channel 5 V relay, **active-low** (IN pulled LOW energises the coil) | 2 | ESP32-commanded start/stop, two groups |
+| MPU-6050 (the module fitted identifies as an **MPU-6500**, WHO_AM_I 0x70) | 1 | Vibration, and coast-down detection |
+| 1-channel 5 V relay, **active-low** (IN pulled LOW energises the coil) — **not yet fitted** (24 Sep 2026) | 2 | ESP32-commanded start/stop, two groups |
 | MAX485 module | 2 | RS-485 two-wire bus |
 | USB-CH340 RS-485 adapter | 1 | Bus master on the laptop |
 | Rocker switch, tactile buttons | — | Digital state inputs |
@@ -128,6 +128,11 @@ active-low: the firmware must hold IN high at boot or every fan starts before an
 else runs. Fan starts are staggered by ~500 ms in firmware — three fans starting together
 draw about 1.2 A against a 1 A supply. The DS18B20 data line needs a 4.7 kΩ pull-up to
 3.3 V, and both probes share one wire — identified by ROM address, never by bus order.
+
+Until the relays arrive the fans run straight from 12 V (`RELAYS_FITTED = false`), and
+the ACS712 can only be zeroed before 12 V is connected: **USB first, then 12 V**. The
+firmware zeroes only while the supply reads below the ADC floor, and otherwise reports
+the current invalid rather than zeroing the load into it.
 
 The station-side machine is a spare laptop, not a Pi. Pulling its Ethernet cable is the
 outage test.
@@ -162,7 +167,7 @@ re-run on a clean tree and passed 15 of 15.
 | Stage | State |
 |---|---|
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
-| 10 hardware rig | firmware **compiles** (TCP and RTU builds, 23 Sep); verified against a stand-in; **the acceptance test needs the physical rig**, which has not been assembled, and nothing has been flashed |
+| 10 hardware rig | firmware **flashed and running on the bench** (RTU build, 24 Sep; relays and run switch not yet fitted, 12 V not yet connected); verified against a stand-in; **the acceptance test — the hub probe unplugged, seen downstream — has not been run** |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
 | 14 FAT | automated FAT **15 of 15** on a clean tree, 23 Sep 05:37 UTC (`fat/reports/FAT-20260923T053731Z.md`); every automated test states what would make it fail; hold and witness points await signature |
 
@@ -172,9 +177,9 @@ Sep), `make api` and `make ui`; the UI needs a token from `make token`.
 
 Outstanding for a person:
 
-1. Build the bench rig (`firmware/REGISTER_MAP.md`), flash the firmware, set the
-   two DS18B20 ROM addresses in `firmware/src/rig_config.h` (printed on the
-   serial monitor), and unplug the temperature probe. Steps in
+1. Finish the bench rig: flash the WiFi build, read it through the bridge,
+   connect 12 V (USB first), check the current's sign and scale against a
+   meter, and unplug the hub probe. Probe addresses are set. Steps in
    `fat/records/stage-10-hardware-rig.md`.
 2. Sit someone in front of the visualisation during an outage and record what
    they say. Steps in `fat/records/stage-12-visualisation.md`.

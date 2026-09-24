@@ -31,12 +31,14 @@ from sim.bridge import (INVALID_S16, INVALID_U16, IREG_ACS_ZERO_MV, IREG_COUNT,
                         IREG_SUPPLY_MV, IREG_TEMP_AMB_X10, IREG_TEMP_HUB_X10,
                         IREG_VIB_MMS_X100, ST_ACS_OK, ST_ACS_ZEROED,
                         ST_AMBIENT_OK, ST_BUS_OK, ST_HUB_OK, ST_MPU_OK,
-                        ST_PROBES_CONFIG, ST_SUPPLY_OK)
+                        ST_PROBES_CONFIG, ST_RELAYS_FITTED, ST_SUPPLY_OK,
+                        ST_SWITCH_FITTED)
 
 log = logging.getLogger("rig_stub")
 
 ALL_OK = (ST_HUB_OK | ST_AMBIENT_OK | ST_MPU_OK | ST_ACS_OK | ST_SUPPLY_OK
-          | ST_BUS_OK | ST_ACS_ZEROED | ST_PROBES_CONFIG)
+          | ST_BUS_OK | ST_ACS_ZEROED | ST_PROBES_CONFIG | ST_SWITCH_FITTED
+          | ST_RELAYS_FITTED)
 
 READ_DISCRETE_INPUTS = 2
 READ_INPUT_REGISTERS = 4
@@ -51,6 +53,9 @@ class RigStub:
         self.hub_connected = True
         self.ambient_connected = True
         self.probes_configured = True
+        # The full rig by default; the bench on 24 Sep 2026 had neither.
+        self.switch_fitted = True
+        self.relays_fitted = True
         self.running = True
         self.scan = 0
         self.input_registers = [0] * IREG_COUNT
@@ -97,10 +102,16 @@ class RigStub:
         values[IREG_TEMP_AMB_X10] = ambient & 0xFFFF
         assert INVALID_U16 not in (values[IREG_VIB_MMS_X100],
                                    values[IREG_SUPPLY_MV])
+        if not self.switch_fitted:
+            status &= ~ST_SWITCH_FITTED
+        if not self.relays_fitted:
+            status &= ~ST_RELAYS_FITTED
         values[IREG_STATUS] = status
         values[IREG_SCAN_COUNT] = self.scan & 0xFFFF
         self.input_registers = values
-        self.discrete_inputs = [self.running, self.running, False]
+        # What the firmware serves: an absent switch or relay reads False.
+        self.discrete_inputs = [self.running and self.switch_fitted,
+                                self.running and self.relays_fitted, False]
 
 
 def _exception(unit: int, function: int, code: int) -> bytes:

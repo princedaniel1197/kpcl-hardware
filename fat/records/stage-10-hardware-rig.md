@@ -186,6 +186,49 @@ commanded off (if one does not, set `RELAY_OPEN_DRAIN`; see the register map).
 `sim/test_bridge.py`: 24 tests, including the path end to end through the
 stand-in over real Modbus TCP into a real OPC UA server.
 
+## Addendum — 24 September 2026: flashed and powered on the bench
+
+Still **NOT PASSED**: the test — unplug the hub probe and see Bad, with no
+value, downstream — has not been run through the bridge, and the WiFi build has
+not been flashed. But the firmware now runs on the real board, against its real
+sensors. The RS-485 build was flashed over USB (`/dev/cu.usbserial-0001`, no
+BOOT button needed) because the WiFi build waits at start-up for a network.
+
+**The bench as wired** differs from the plan: no relays (the delivery is
+missing; the fans run straight from 12 V through the ACS712), no rocker switch,
+the supply divider built from five 4.7 kΩ resistors (5.0), and 12 V not yet
+connected. The firmware now says so rather than assuming the plan
+(`RELAYS_FITTED`, `RUN_SWITCH_FITTED` in `rig_config.h`).
+
+What the board reported, 12 V off, from the serial monitor:
+
+| | Reading |
+|---|---|
+| DS18B20 | **2 found**. With the HUB probe held from 14:34 UTC, `{0x28,0x4D,0x31,0x26,0,0,0,0x11}` rose 26.6 → 33.2 °C while `{0x28,0x99,0xFA,0x25,0,0,0,0xD3}` stayed at 27.0 °C: HUB and AMBIENT respectively, now in `rig_config.h` |
+| Accelerometer | answers at 0x68 with **WHO_AM_I 0x70: an MPU-6500**, not the MPU-6050 it was sold as. The Adafruit driver refused it; the firmware now reads both parts' (identical) accelerometer registers directly |
+| Vibration, at rest | 1.02 mm/s as first computed — a scale error, from subtracting standard gravity; **0.40–0.46 mm/s** once taken about the window's mean, which is the sensor's noise floor |
+| ACS712 zero | the ESP32 read **2,721–2,730 mV**, outside the 2,300–2,700 window, and the firmware refused it. A multimeter read **2.50 V** on OUT (5 V rail 4.94 V): the ADC reads 225 mV high there, although `analogReadMilliVolts()` already applies the chip's calibration (eFuse Vref). 2.5 V is above the 2,450 mV Espressif characterises at 11 dB. A −225 mV bench correction is now configured; the zero reads **2,493 mV** and current **0.000 A ± 0.004** with no load |
+| Supply | read 142 mV at the pin, published by the old firmware as a Good **0.57 V** with nothing connected. Below the ADC's floor it is now "cannot measure" (BadOutOfRange) |
+| ADC calibration | eFuse Vref |
+
+The correction cancels in the current (a difference from the zero); what it
+cannot touch is a gain error, which would scale every current. **The current's
+scale is not claimed** until it has been compared with a meter in series with
+the fans, and the supply reading until it has been compared with a meter on
+12 V.
+
+Without relays, the only protection for the zero is order: **USB first, then
+12 V**. The firmware enforces it — it zeroes only while the supply reads below
+the ADC floor, and otherwise leaves the current invalid and prints a warning —
+because a zero taken with the fans running would publish every current about
+0.46 A wrong, as Good, and pass every plausibility check.
+
+Register map version 3 records all of it. `sim/test_bridge.py`: 30 tests.
+
+Next: flash the WiFi build (`pio run -e tcp -t upload`), run the simulator with
+`--modbus-host`, connect 12 V, check the current's sign (`ACS712_SIGN`) and scale
+against a meter, then unplug the hub probe.
+
 ## Signature
 
 | Role | Name | Date |

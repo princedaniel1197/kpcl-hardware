@@ -231,7 +231,8 @@ def render(env: dict, results: dict[str, Result], began, ended,
         "one laptop with one simulated unit and a bench rig. It says nothing "
         "about wide-area network behaviour, cross-site time synchronisation, "
         "per-station licensing, or OT security zoning. The bench rig's firmware "
-        "compiles but has never been flashed or run against real sensors.",
+        "has run on the board against its real sensors, but the rig has not yet "
+        "been read end to end through the bridge, and Stage 10 has not passed.",
         "",
         "Plant physics is limited to definitional ratios. Cylinder efficiency "
         "and condenser performance require published steam tables and are not "

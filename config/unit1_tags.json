@@ -234,7 +234,7 @@
     },
     {
       "name": "RIG_VIBRATION",
-      "description": "Bench rig fan vibration (MPU-6050, approximate velocity)",
+      "description": "Bench rig fan vibration (MPU-6050 or MPU-6500, approximate velocity)",
       "engineering_unit": "mm/s",
       "range_low": 0.0,
       "range_high": 50.0,

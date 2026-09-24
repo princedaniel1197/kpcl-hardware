@@ -12,14 +12,18 @@ not republished, and no zero is invented. That is §318 crossing a fieldbus
 boundary, which is the one place it is easiest to lose. The Bad code says which
 failure it was: BadDeviceFailure for a sensor that did not read (the build
 plan's mapping), BadConfigurationError for temperature probes whose ROM
-addresses have not been configured in the firmware, and BadOutOfRange for a
-supply voltage beyond what the ADC can measure.
+addresses have not been configured in the firmware, BadOutOfRange for a
+supply voltage outside what the ADC can measure, and BadNotConnected for a
+digital input whose hardware is not fitted.
 
-The register map is REGISTER_MAP.md, version 2 (review of 23 September 2026):
-current is signed so that a wrong zero shows as negative instead of being
-hidden, every channel has a sentinel, and the supply status bit means "the ADC
-could measure it" rather than "the supply is within limits" -- a brown-out
-reading is the one worth having, and judging it is the monitoring system's job.
+The register map is REGISTER_MAP.md, version 3 (bench bring-up, 24 September
+2026; version 2 came from the review of 23 September): current is signed so
+that a wrong zero shows as negative instead of being hidden, every channel has
+a sentinel, the supply status bit means "the ADC could measure it" -- at either
+end of its range -- rather than "the supply is within limits", and status bits
+8 and 9 say whether the run switch and the relays are fitted at all. A digital
+input whose hardware is absent reads a plain False, which published as Good
+would say "stopped" about a rig that is running.
 
 The bridge lives in sim/ rather than collector/ because it is a source of data,
 not an acquirer of it. It WRITES values into the OPC UA server's address space --
@@ -58,6 +62,8 @@ ST_SUPPLY_OK = 1 << 4
 ST_BUS_OK = 1 << 5
 ST_ACS_ZEROED = 1 << 6
 ST_PROBES_CONFIG = 1 << 7
+ST_SWITCH_FITTED = 1 << 8
+ST_RELAYS_FITTED = 1 << 9
 
 # Sentinels no sensor on the rig can produce.
 INVALID_S16 = -32768
@@ -69,6 +75,7 @@ BAD_DEVICE_FAILURE = int(ua.StatusCodes.BadDeviceFailure)
 BAD_CONFIGURATION = int(ua.StatusCodes.BadConfigurationError)
 BAD_OUT_OF_RANGE = int(ua.StatusCodes.BadOutOfRange)
 BAD_NO_COMMUNICATION = int(ua.StatusCodes.BadNoCommunication)
+BAD_NOT_CONNECTED = int(ua.StatusCodes.BadNotConnected)
 
 
 @dataclass(frozen=True)
@@ -87,6 +94,8 @@ class Point:
     # Which Bad code a clear status bit means for this point.
     bad_code: int = BAD_DEVICE_FAILURE
     needs_probe_config: bool = False
+    # What a clear status bit means, in words, for the log.
+    clear_reason: str = "the sensor was not read successfully this scan"
 
     @property
     def invalid(self) -> int:
@@ -99,7 +108,7 @@ POINTS: tuple[Point, ...] = (
           "Bench rig total load current (ACS712 5 A)", ST_ACS_OK, signed=True,
           eu_low=-5.0, eu_high=5.0),
     Point("RIG_VIBRATION", IREG_VIB_MMS_X100, 0.01, "mm/s",
-          "Bench rig fan vibration (MPU-6050, approximate velocity)",
+          "Bench rig fan vibration (MPU-6050 or MPU-6500, approximate velocity)",
           ST_MPU_OK, eu_low=0.0, eu_high=50.0),
     Point("RIG_HUB_TEMP", IREG_TEMP_HUB_X10, 0.1, "degC",
           "Fan motor hub temperature (DS18B20)", ST_HUB_OK, signed=True,
@@ -109,14 +118,18 @@ POINTS: tuple[Point, ...] = (
           eu_low=-55.0, eu_high=125.0, needs_probe_config=True),
     Point("RIG_SUPPLY_V", IREG_SUPPLY_MV, 0.001, "V",
           "Bench rig supply voltage", ST_SUPPLY_OK, eu_low=0.0, eu_high=15.0,
-          bad_code=BAD_OUT_OF_RANGE),
+          bad_code=BAD_OUT_OF_RANGE,
+          clear_reason="the supply is outside what the ADC can measure: below "
+                       "its floor (about 0.75 V, e.g. 12 V disconnected) or at "
+                       "its ceiling"),
 )
 
 # The discrete inputs report what the firmware COMMANDED the relays to do; the
-# rig has no contact feedback, and the names say so.
-DIGITALS = (("RIG_RUNNING", 0, "Rig run/stop state (rocker switch)"),
-            ("RIG_RELAY_1", 1, "Relay group 1 commanded on"),
-            ("RIG_RELAY_2", 2, "Relay group 2 commanded on"))
+# rig has no contact feedback, and the names say so. The last field is the
+# status bit that says the hardware behind the input is fitted.
+DIGITALS = (("RIG_RUNNING", 0, "Rig run/stop state (rocker switch)", ST_SWITCH_FITTED),
+            ("RIG_RELAY_1", 1, "Relay group 1 commanded on", ST_RELAYS_FITTED),
+            ("RIG_RELAY_2", 2, "Relay group 2 commanded on", ST_RELAYS_FITTED))
 
 
 def _signed(word: int) -> int:
@@ -135,10 +148,14 @@ def decode(point: Point, registers: list[int], status: int
         return None, BAD_CONFIGURATION, (
             f"{point.tag}: the DS18B20 ROM addresses are not configured in the "
             f"firmware (rig_config.h), so no probe can be trusted to be this one")
+    if point.status_bit == ST_ACS_OK and not (status & ST_ACS_ZEROED):
+        return None, BAD_DEVICE_FAILURE, (
+            f"{point.tag}: the ACS712 has not been zeroed with the load off -- "
+            f"12 V was already on at boot with no relays to switch the fans, or "
+            f"the zero was implausible -- so no current can be trusted")
     if not (status & point.status_bit):
         return None, point.bad_code, (
-            f"firmware status bit for {point.tag} is clear: the sensor was not "
-            f"read successfully this scan")
+            f"firmware status bit for {point.tag} is clear: {point.clear_reason}")
     raw = registers[point.register]
     if raw == (point.invalid & 0xFFFF):
         # Belt and braces: the status bit should already have caught this.
@@ -150,6 +167,17 @@ def decode(point: Point, registers: list[int], status: int
     if point.signed:
         raw = _signed(raw)
     return raw * point.scale, GOOD, None
+
+
+def decode_digital(tag: str, bit: int, fitted_bit: int, bits: list[bool],
+                   status: int) -> tuple[bool | None, int, str | None]:
+    """A discrete input, unless the hardware behind it is not fitted -- then
+    Bad with no value, because an absent switch reads a plain False."""
+    if not (status & fitted_bit):
+        return None, BAD_NOT_CONNECTED, (
+            f"{tag}: not fitted on this rig (rig_config.h), so the input "
+            f"reads nothing and its False means nothing")
+    return bool(bits[bit]), GOOD, None
 
 
 class ModbusBridge:
@@ -209,7 +237,7 @@ class ModbusBridge:
             await node.add_property(self.idx, "EURange",
                                     ua.Range(Low=point.eu_low, High=point.eu_high))
             self._nodes[point.tag] = node
-        for tag, _, description in DIGITALS:
+        for tag, _, description, _ in DIGITALS:
             node = await rig.add_variable(self.idx, tag, False,
                                           ua.VariantType.Boolean)
             await node.set_writable(False)
@@ -277,20 +305,26 @@ class ModbusBridge:
         status = words[IREG_STATUS]
         for point in POINTS:
             value, quality, reason = decode(point, words, status)
-            # Logged when it changes, not on every poll.
-            if reason != self._reasons.get(point.tag):
-                if reason:
-                    log.warning("%s: %s", point.tag, reason)
-                elif point.tag in self._reasons:
-                    log.info("%s: reading again", point.tag)
-                self._reasons[point.tag] = reason
+            self._log_reason(point.tag, reason)
             await self._publish(point.tag, value, quality,
                                 ua.VariantType.Double, source_ts)
-        for tag, bit, _ in DIGITALS:
-            await self._publish(tag, bool(discretes.bits[bit]), GOOD,
+        for tag, bit, _, fitted_bit in DIGITALS:
+            value, quality, reason = decode_digital(tag, bit, fitted_bit,
+                                                    discretes.bits, status)
+            self._log_reason(tag, reason)
+            await self._publish(tag, value, quality,
                                 ua.VariantType.Boolean, source_ts)
         self.polls += 1
         return True
+
+    def _log_reason(self, tag: str, reason: str | None) -> None:
+        """Logged when it changes, not on every poll."""
+        if reason != self._reasons.get(tag):
+            if reason:
+                log.warning("%s: %s", tag, reason)
+            elif tag in self._reasons:
+                log.info("%s: reading again", tag)
+            self._reasons[tag] = reason
 
     async def _mark_all_bad(self, quality: int, reason: str) -> None:
         """Losing the rig is not the same as the rig reading zero."""
@@ -301,7 +335,7 @@ class ModbusBridge:
         for point in POINTS:
             await self._publish(point.tag, None, quality,
                                 ua.VariantType.Double, source_ts)
-        for tag, _, _ in DIGITALS:
+        for tag, _, _, _ in DIGITALS:
             await self._publish(tag, None, quality, ua.VariantType.Boolean,
                                 source_ts)
 

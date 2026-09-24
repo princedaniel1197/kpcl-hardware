@@ -25,6 +25,29 @@ static const bool RELAY_ACTIVE_LOW = true;
 // hardware on order; it is a setting because only the bench can decide it.
 static const bool RELAY_OPEN_DRAIN = false;
 
+// Whether the relays are fitted at all. NOT on 24 Sep 2026: the delivery is
+// missing, G25/G26 are unconnected, and the fans run straight from 12 V
+// through the ACS712. With this false:
+//   - the relay discrete inputs are served as false and status bit 9 is clear,
+//     so the bridge publishes RIG_RELAY_1/2 as Bad (BadNotConnected) rather
+//     than as a Good "commanded off";
+//   - relay coil writes are refused (ILLEGAL DATA ADDRESS);
+//   - the ACS712 is zeroed only while the supply reads below the ADC's floor,
+//     i.e. while 12 V is disconnected. Operating rule until the relays arrive:
+//     USB first, then 12 V. A boot with 12 V already on leaves the current
+//     invalid and prints a warning, rather than zeroing the fans into it.
+static const bool RELAYS_FITTED = false;
+
+// ---------------------------------------------------------------------------
+// Run switch
+// ---------------------------------------------------------------------------
+//
+// NOT fitted on 24 Sep 2026 (G27 unconnected). An unconnected pin reads its
+// pull-up, which is "stopped" -- published as Good it would say the rig was
+// stopped while the fans ran. With this false, status bit 8 is clear and the
+// bridge publishes RIG_RUNNING as Bad (BadNotConnected).
+static const bool RUN_SWITCH_FITTED = false;
+
 // ---------------------------------------------------------------------------
 // DS18B20 probes, identified by ROM address
 // ---------------------------------------------------------------------------
@@ -40,8 +63,12 @@ static const bool RELAY_OPEN_DRAIN = false;
 // firmware prints the address of every probe on the bus every ten seconds.
 // Touch one probe and watch which reading rises. Until both are set, both
 // temperature points report invalid, and status bit 7 is clear.
-static const uint8_t HUB_PROBE_ADDRESS[8]     = {0, 0, 0, 0, 0, 0, 0, 0};
-static const uint8_t AMBIENT_PROBE_ADDRESS[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+//
+// Identified on 24 Sep 2026: with the HUB probe held in the fingers from
+// 14:34 UTC, {..,0x4D,..,0x11} rose from 26.6 to 33.2 degC while
+// {..,0x99,..,0xD3} stayed at 27.0 degC.
+static const uint8_t HUB_PROBE_ADDRESS[8]     = {0x28, 0x4D, 0x31, 0x26, 0x00, 0x00, 0x00, 0x11};
+static const uint8_t AMBIENT_PROBE_ADDRESS[8] = {0x28, 0x99, 0xFA, 0x25, 0x00, 0x00, 0x00, 0xD3};
 
 // ---------------------------------------------------------------------------
 // Pins (ESP32 38-pin NodeMCU)
@@ -71,8 +98,36 @@ static const uint32_t RS485_BAUD = 19200;
 // supply). The zero is measured at boot with the load off, not assumed.
 static const float ACS712_MV_PER_A = 185.0f;
 
-// Supply divider ratio, (R_top + R_bottom) / R_bottom. 39 k over 10 k gives
-// 12 V -> 2.45 V, inside the range the ESP32 ADC reads linearly at 11 dB; the
-// earlier 4:1 put 12 V at 3.0 V, next to the ADC's ceiling, and 13.5 V beyond
-// it. Measure the resistors actually fitted and put the real ratio here.
-static const float SUPPLY_DIVIDER = (39.0f + 10.0f) / 10.0f;
+// Current direction. +1 if the fans read positive; -1 if the ACS712's IP+/IP-
+// are the other way round. Not yet known on 24 Sep 2026: 12 V was not
+// connected. A fan load reading clearly negative is reported invalid, so a
+// wrong sign shows as a Bad current, and this is where to put it right.
+static const float ACS712_SIGN = +1.0f;
+
+// Bench correction to the ESP32's calibrated ADC reading on the ACS712 pin.
+// Measured 24 Sep 2026 with 12 V off: multimeter ACS712 OUT to GND 2.50 V
+// (5 V rail 4.94 V), while analogReadMilliVolts() -- which already applies the
+// chip's eFuse calibration -- read 2721-2730 mV. So -225 mV.
+//
+// What it does and does not do. It makes the zero and register 7 a true
+// voltage, so the 2300-2700 mV plausibility window judges the sensor rather
+// than the ADC. It cannot change a current: current is a difference from the
+// zero, and a constant offset cancels. What it does NOT correct is a gain
+// error, which would scale every current reading; one meter reading cannot
+// separate gain from offset. 2.5 V is also above the 2450 mV to which
+// Espressif characterises this ADC at 11 dB, which is the likely cause. The
+// current's scale is verified by comparing it with a meter in series with the
+// fans, and is not claimed until that has been done.
+static const float ACS712_ADC_OFFSET_MV = -225.0f;
+
+// Supply divider ratio, (R_top + R_bottom) / R_bottom. Measure the resistors
+// actually fitted and put the real ratio here.
+//
+// FITTED on 24 Sep 2026: five 4.7 k, four on top and one below, so 5.0; 12 V
+// is 2.4 V on the pin. (Four, as first fitted, put 12 V at 3.0 V against the
+// ADC's ceiling.) 2.4 V is still near the top of the range Espressif
+// characterises (2450 mV), and on the ACS712 pin this ADC read 225 mV high at
+// 2.5 V: until the supply reading has been compared with a meter, it is a
+// reading, not a calibrated one. Below 0.75 V (150 mV at the pin) it is
+// reported as cannot-measure.
+static const float SUPPLY_DIVIDER = (4 * 4.7f + 4.7f) / 4.7f;

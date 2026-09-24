@@ -20,6 +20,7 @@ GOOD = 0
 BAD_DEVICE = int(ua.StatusCodes.BadDeviceFailure)
 BAD_CONFIG = int(ua.StatusCodes.BadConfigurationError)
 BAD_RANGE = int(ua.StatusCodes.BadOutOfRange)
+BAD_NOT_CONNECTED = int(ua.StatusCodes.BadNotConnected)
 
 
 def registers(hub=425, ambient=240, status=ALL_OK, current=460, vib=234,
@@ -99,6 +100,45 @@ def test_a_supply_beyond_the_adc_is_out_of_range_not_a_device_failure():
     words = registers(supply=bridge.INVALID_U16, status=status)
     value, quality, _ = bridge.decode(point("RIG_SUPPLY_V"), words, status)
     assert value is None and quality == BAD_RANGE
+
+
+def test_an_unzeroed_current_sensor_names_the_zero():
+    """With no relays, 12 V on at boot means the fans were running during the
+    zero; the firmware refuses it, and the bridge says why."""
+    status = ALL_OK & ~(bridge.ST_ACS_ZEROED | bridge.ST_ACS_OK)
+    value, quality, reason = bridge.decode(point("RIG_CURRENT"), registers(), status)
+    assert value is None and quality == BAD_DEVICE
+    assert "zeroed" in reason
+
+
+def test_a_supply_below_the_adc_floor_says_so():
+    status = ALL_OK & ~bridge.ST_SUPPLY_OK
+    _, _, reason = bridge.decode(point("RIG_SUPPLY_V"), registers(), status)
+    assert "floor" in reason
+
+
+@pytest.mark.parametrize("tag,fitted_bit", [
+    ("RIG_RUNNING", bridge.ST_SWITCH_FITTED),
+    ("RIG_RELAY_1", bridge.ST_RELAYS_FITTED),
+    ("RIG_RELAY_2", bridge.ST_RELAYS_FITTED)])
+def test_an_input_that_is_not_fitted_is_bad_not_false(tag, fitted_bit):
+    """An absent rocker switch reads its pull-up, which is "stopped". Published
+    as Good it would say the rig was stopped while its fans ran."""
+    _, bit, _, fitted = next(d for d in bridge.DIGITALS if d[0] == tag)
+    assert fitted == fitted_bit
+    value, quality, reason = bridge.decode_digital(
+        tag, bit, fitted, [False, False, False], ALL_OK & ~fitted_bit)
+    assert value is None and quality == BAD_NOT_CONNECTED
+    assert "not fitted" in reason
+
+
+def test_a_fitted_input_is_good_either_way():
+    for tag, bit, _, fitted in bridge.DIGITALS:
+        for state in (True, False):
+            bits = [False, False, False]
+            bits[bit] = state
+            assert bridge.decode_digital(tag, bit, fitted, bits, ALL_OK) == \
+                (state, GOOD, None)
 
 
 def test_a_low_supply_is_still_a_measurement():
@@ -273,6 +313,17 @@ async def test_a_failed_probe_reaches_opc_ua_as_bad_with_no_value():
             assert bad.Value.Value is None
             # And only the hub.
             assert (await read("RIG_AMBIENT_TEMP")).StatusCode.value == GOOD
+            assert (await read("RIG_CURRENT")).StatusCode.value == GOOD
+
+            # The bench as it stood on 24 Sep 2026: no switch, no relays.
+            assert (await read("RIG_RUNNING")).StatusCode.value == GOOD
+            rig.switch_fitted = rig.relays_fitted = False
+            rig.step()
+            assert await b.poll_once()
+            for tag in ("RIG_RUNNING", "RIG_RELAY_1", "RIG_RELAY_2"):
+                absent = await read(tag)
+                assert absent.StatusCode.value == BAD_NOT_CONNECTED
+                assert absent.Value.Value is None
             assert (await read("RIG_CURRENT")).StatusCode.value == GOOD
         finally:
             b.close()

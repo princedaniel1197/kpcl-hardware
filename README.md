@@ -40,10 +40,11 @@ passed 15 of 15.
 
 Two things are outstanding and both need a person, not more code:
 
-- **Stage 10** needs the ESP32 and the sensors on a bench. The firmware compiles
-  (both builds) and the whole path from a failed sensor to a Bad KPI is
-  demonstrated against a stand-in, but nothing has been flashed and no probe
-  unplugged.
+- **Stage 10** needs the rig run end to end. The firmware has been flashed and
+  runs against the real sensors on the bench (24 Sep; relays and run switch not
+  yet fitted, 12 V not yet connected), and the whole path from a failed sensor
+  to a Bad KPI is demonstrated against a stand-in — but the rig has not yet
+  been read through the bridge, and no probe has been unplugged.
 - **Stage 12's** criterion is "a colleague who has not seen it can describe what
   happened". Nobody has watched it.
 

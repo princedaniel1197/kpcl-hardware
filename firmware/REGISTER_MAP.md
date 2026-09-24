@@ -1,4 +1,4 @@
-# ESP32 bench rig — Modbus register map, version 2
+# ESP32 bench rig — Modbus register map, version 3
 
 The rig is two 12 V fans plus a switchable third, on one supply, instrumented and
 published by an ESP32 as Modbus unit id 1 — over **TCP** (WiFi, port 502) or over
@@ -11,21 +11,22 @@ degrees Celsius. Nothing here is scaled or renamed to look like a 210 MW unit:
 fieldbus, and quality that survives the whole path — and it demonstrates that
 better by being honest about what it is.
 
-Version 2 came out of the code review of 23 September 2026 and the first compile;
-what changed from version 1 is listed at the end.
+Version 2 came out of the code review of 23 September 2026 and the first compile.
+Version 3 came out of the first power-up on the bench, 24 September 2026. What
+changed in each is listed at the end.
 
 ## Input registers (function 4, read-only)
 
 | Reg | Quantity | Raw unit | Scale | Engineering unit | Type | Invalid sentinel |
 |---|---|---|---|---|---|---|
 | 0 | Load current, mean (ACS712 5 A) | mA | ÷1000 | A | **int16** | −32768 |
-| 1 | Vibration RMS (MPU-6050) | mm/s × 100 | ÷100 | mm/s | uint16 | 65535 |
+| 1 | Vibration RMS (MPU-6050 or MPU-6500) | mm/s × 100 | ÷100 | mm/s | uint16 | 65535 |
 | 2 | Motor hub temperature (DS18B20) | °C × 10 | ÷10 | °C | **int16** | −32768 |
 | 3 | Ambient temperature (DS18B20) | °C × 10 | ÷10 | °C | **int16** | −32768 |
 | 4 | Supply voltage | mV | ÷1000 | V | uint16 | 65535 |
 | 5 | **Status word** | bitfield | — | — | uint16 | — |
 | 6 | Firmware scan counter | count | — | — | uint16 | — |
-| 7 | ACS712 zero, as measured | mV | — | mV | uint16 | 0 = never zeroed |
+| 7 | ACS712 zero, as measured, after the bench ADC correction | mV | — | mV | uint16 | 0 = never zeroed |
 
 Registers 0, 2 and 3 are **signed**. A probe below 0 °C is a real reading, and
 so is a current slightly below zero — which on a load of fans means the zero is
@@ -37,21 +38,32 @@ wrong, and a signed register is how that shows instead of being hidden.
 |---|---|
 | 0 | Hub probe read OK this conversion |
 | 1 | Ambient probe read OK this conversion |
-| 2 | MPU-6050 responding and read OK this scan |
+| 2 | Accelerometer (MPU-6050 or MPU-6500, by WHO_AM_I) responding and read OK this scan |
 | 3 | Current reading valid: sensor zeroed, output not at a rail, mean not implausibly negative |
-| 4 | Supply ADC not saturated — the voltage is measurable |
+| 4 | Supply within the ADC's measurable range — above its floor (150 mV at the pin) and below saturation |
 | 5 | At least one device answers on the OneWire bus |
 | 6 | ACS712 zeroed with the load off, and the zero is plausible (2300–2700 mV) |
 | 7 | Both probe ROM addresses are configured (`src/rig_config.h`) |
+| 8 | Run switch fitted (`RUN_SWITCH_FITTED`) |
+| 9 | Relays fitted (`RELAYS_FITTED`) |
 
 A clear bit means **that** measurement is not to be trusted, and its register
 holds its sentinel. The rest of the register set is unaffected.
+
+**Bits 8 and 9 are about the hardware, not a reading.** An input with nothing
+wired to it still reads: the run-switch pin floats to its pull-up, which is
+"stopped", and a relay that is not there reads "commanded off". Published as
+Good, either would be a statement about the rig that nobody measured. With the
+bit clear the bridge publishes the input as **BadNotConnected**, with no value,
+and relay coil writes are refused (ILLEGAL DATA ADDRESS).
 
 **Bit 4 is about the ADC, not the supply.** A supply reading of 9.8 V during a
 brown-out is a valid measurement, and exactly the one worth having; version 1
 cleared the bit outside 10.5–13.5 V and so turned it into BadDeviceFailure with
 no value. Whether a voltage is acceptable is the monitoring system's judgement —
-a range rule on `RIG_SUPPLY_V` — not the sensor's.
+a range rule on `RIG_SUPPLY_V` — not the sensor's. The bit is also clear at
+the other end: with 12 V disconnected this board's ADC reads about 142 mV on the
+divider, which version 2 published as a Good 0.57 V.
 
 ## Discrete inputs (function 2, read-only)
 
@@ -159,7 +171,9 @@ turned an overheating motor — the anomaly worth seeing — into a failed senso
 |---|---|---|
 | status bit set, register not a sentinel | Good | scaled reading |
 | probe addresses not configured (bit 7 clear) | BadConfigurationError | null |
-| supply ADC saturated (bit 4 clear) | BadOutOfRange | null |
+| supply below the ADC's floor or at its ceiling (bit 4 clear) | BadOutOfRange | null |
+| current sensor not zeroed (bit 6 clear) | BadDeviceFailure, the reason naming the zero | null |
+| run switch or relays not fitted (bit 8 or 9 clear) | BadNotConnected on that discrete input | null |
 | any other clear status bit | BadDeviceFailure | null |
 | status bit set but register holds the sentinel | BadDeviceFailure, logged as a firmware/bridge disagreement | null |
 | rig unreachable, or a Modbus exception | BadNoCommunication on every point | null |
@@ -184,12 +198,12 @@ ends near 3.1 V, not 3.3 V, and is non-linear towards the top.
 | Signal | ESP32 pin | Notes |
 |---|---|---|
 | ACS712 OUT | GPIO 34 (ADC1) | ACS712 on 5 V; output 2.5 V ± 0.185 V/A |
-| Supply divider | GPIO 35 (ADC1) | 39 kΩ over 10 kΩ: 12 V → 2.45 V. Put the fitted ratio in `SUPPLY_DIVIDER` |
+| Supply divider | GPIO 35 (ADC1) | Fitted: four 4.7 kΩ over one, 5.0 — 12 V → 2.4 V. Put the fitted ratio in `SUPPLY_DIVIDER` |
 | DS18B20 data | GPIO 4 | **4.7 kΩ pull-up to 3.3 V**; both probes on this one wire |
 | Run switch | GPIO 27 | to GND; internal pull-up |
 | Relay 1 IN | GPIO 25 | active-low module |
 | Relay 2 IN | GPIO 26 | active-low module |
-| MPU-6050 | GPIO 21 SDA / 22 SCL | I²C |
+| MPU-6050 / MPU-6500 | GPIO 21 SDA / 22 SCL | I²C, address 0x68 |
 | MAX485 DI / RO | GPIO 17 (TX2) / 16 (RX2) | `rtu` build only |
 | MAX485 DE + /RE | GPIO 5 | tied together; driven by the Modbus server |
 
@@ -217,3 +231,16 @@ caller retries rather than the firmware queueing starts it may no longer want.
 | Coil values other than ON/OFF | accepted as OFF | refused |
 | Transport | TCP only | TCP or RTU (RS-485) |
 | Compiled | never | both builds, 23 Sep 2026, PlatformIO espressif32 7.1.3 — not yet flashed |
+
+## Changes from version 2 (bench bring-up, 24 September 2026)
+
+| | Version 2 | Version 3 |
+|---|---|---|
+| Accelerometer | Adafruit MPU6050 driver; refuses anything but WHO_AM_I 0x68 | registers read directly; accepts MPU-6050 (0x68) and MPU-6500 (0x70), nothing else. The module on the bench is an MPU-6500 |
+| Vibration | RMS of \|a\| − 9.80665 m/s² — a sensor scale error read as vibration (1.02 mm/s at rest) | RMS about the window's own mean (0.40–0.46 mm/s at rest: the noise floor) |
+| Supply status bit | clear only at the ADC's ceiling | clear at the floor too: 12 V disconnected read as 0.57 V |
+| Status bits 8, 9 | — | run switch fitted; relays fitted. Absent hardware publishes BadNotConnected |
+| Relay coils | always accepted | refused when the relays are not fitted |
+| Current zero | with the relays open | also, with no relays, only while the supply reads below the ADC floor (12 V off); otherwise refused and a warning printed |
+| ACS712 reading | `analogReadMilliVolts()` | the same plus a bench offset measured against a multimeter (−225 mV); `ACS712_SIGN` for a reversed sensor |
+| Serial | probe addresses | addresses with each probe's reading and role; I²C scan; ADC calibration source; a status line every 10 s |

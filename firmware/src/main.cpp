@@ -1,7 +1,7 @@
 // CRPMS bench rig — ESP32 Modbus server, TCP over WiFi or RTU over RS-485
 //
 // Two 12 V fans plus a switchable third on one supply, instrumented with an
-// ACS712 current sensor, an MPU-6050 for vibration, and two DS18B20 probes
+// ACS712 current sensor, an MPU-6050 or MPU-6500 for vibration, two DS18B20 probes
 // (motor hub and ambient). Published as Modbus unit id 1 -- over TCP by
 // default, or over RS-485 through a MAX485 with the `rtu` build.
 //
@@ -17,14 +17,14 @@
 // error codes. The DS18B20 reports 85.0 degC after a power-on reset and
 // -127.0 degC on a bus error, and 85 degC is a credible motor hub temperature.
 //
-// Libraries: eModbus (MIT), OneWire, DallasTemperature, Adafruit MPU6050.
+// Libraries: eModbus (MIT), OneWire, DallasTemperature. The accelerometer is
+// read through its registers directly (see "Accelerometer" below).
 
 #include <Arduino.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <esp_adc_cal.h>
 
 #include "rig_config.h"
 
@@ -55,12 +55,20 @@ static const uint32_t RELAY_SETTLE_MS     = 300;
 // current. A zero (no-load output) far from Vcc/2 means the sensor, its supply
 // or the calibration is wrong. And a load that is only fans cannot run
 // backwards: a mean current clearly below zero means the zero is wrong.
+// The rails are on the ADC's own reading; the zero window is on the corrected
+// voltage (acsMv()).
 static const float ACS_RAIL_LOW_MV   = 50.0f;
 static const float ACS_RAIL_HIGH_MV  = 3050.0f;
 static const float ACS_ZERO_MIN_MV   = 2300.0f;
 static const float ACS_ZERO_MAX_MV   = 2700.0f;
 static const float ACS_NEGATIVE_A    = -0.10f;
 static const float SUPPLY_ADC_MAX_MV = 3050.0f;
+// The bottom of the range Espressif characterises at 11 dB. Below it the ADC
+// cannot tell a small voltage from none: with the supply disconnected this
+// board reads about 142 mV on the divider, which would otherwise be published
+// as a supply of 0.7 V. A reading under the floor is "cannot measure", not a
+// voltage.
+static const float SUPPLY_ADC_MIN_MV = 150.0f;
 
 // Register map (see REGISTER_MAP.md)
 enum : uint16_t {
@@ -83,7 +91,9 @@ enum : uint16_t {
   ST_SUPPLY_OK     = 1 << 4,
   ST_BUS_OK        = 1 << 5,
   ST_ACS_ZEROED    = 1 << 6,
-  ST_PROBES_CONFIG = 1 << 7
+  ST_PROBES_CONFIG = 1 << 7,
+  ST_SWITCH_FITTED = 1 << 8,   // RUN_SWITCH_FITTED in rig_config.h
+  ST_RELAYS_FITTED = 1 << 9    // RELAYS_FITTED in rig_config.h
 };
 
 enum : uint16_t {
@@ -110,7 +120,6 @@ ModbusServerTCPasync modbusServer;
 #endif
 OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature probes(&oneWire);
-Adafruit_MPU6050 mpu;
 
 static uint16_t inputRegisters[IREG_COUNT] = {0};
 static bool     discreteInputs[3] = {false, false, false};
@@ -118,6 +127,8 @@ static bool     relayOn[2] = {false, false};
 
 static bool  probesConfigured = false;
 static bool  mpuPresent = false;
+static uint8_t mpuAddress = 0x68;
+static const char *mpuName = "none";
 static float acsZeroMv = 0.0f;
 static bool  acsZeroed = false;
 static uint32_t lastScan = 0, lastTempRequest = 0, lastProbeList = 0;
@@ -148,8 +159,33 @@ static void setRelay(uint16_t index, bool energise) {
   if (energise) lastRelayOn = now; else lastRelayOff = now;
 }
 
+static float lastSupplyAdcMv = 0.0f;
+
+// The supply divider, averaged, and remembered for the Modbus handlers (which
+// run in another task and must not touch the ADC themselves).
+static float readSupplyAdcMv() {
+  uint32_t sum = 0;
+  for (int i = 0; i < 16; i++) sum += analogReadMilliVolts(PIN_SUPPLY_ADC);
+  lastSupplyAdcMv = sum / 16.0f;
+  return lastSupplyAdcMv;
+}
+
+// Whether the current sensor can be zeroed now, i.e. no load current flows.
+//
+// With relays fitted, that is both relays de-energised and settled. Without
+// them the fans are wired straight to the 12 V supply, so the only evidence
+// the load is off is the supply itself: the zero is allowed only while the
+// supply divider reads below what the ADC can measure. The operating rule
+// until the relays arrive is USB before 12 V; this is what enforces it.
 static bool loadIsOff() {
+  if (!RELAYS_FITTED) return lastSupplyAdcMv < SUPPLY_ADC_MIN_MV;
   return !relayOn[0] && !relayOn[1] && millis() - lastRelayOff >= RELAY_SETTLE_MS;
+}
+
+// The ACS712 output as a voltage: the ESP32's calibrated reading, corrected by
+// the offset measured on this bench against a multimeter (rig_config.h).
+static inline float acsMv() {
+  return analogReadMilliVolts(PIN_ACS712) + ACS712_ADC_OFFSET_MV;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,16 +196,33 @@ static bool loadIsOff() {
 // zero taken with the fans running would offset every current reading for the
 // life of the boot. Returns whether the zero is plausible.
 static bool zeroCurrentSensor() {
-  if (!loadIsOff()) return false;
+  if (!RELAYS_FITTED) readSupplyAdcMv();
+  if (!loadIsOff()) {
+    // Refused, not taken: a zero with the fans running would publish every
+    // later current as a Good reading about 0.46 A wrong.
+    acsZeroed = false;
+    setStatus(ST_ACS_ZEROED, false);
+    if (!RELAYS_FITTED) {
+      Serial.printf("WARNING: ACS712 NOT zeroed. The supply reads %.0f mV at the "
+                    "divider, so 12 V is connected, and with no relays fitted the "
+                    "fans are running: a zero now would include their current. "
+                    "Current reports invalid. Disconnect 12 V and reset the ESP32 "
+                    "(USB first, then 12 V).\n", lastSupplyAdcMv);
+    } else {
+      Serial.println("ACS712 zero refused: a relay is energised or not yet settled");
+    }
+    return false;
+  }
   double sum = 0;
-  for (int i = 0; i < 500; i++) { sum += analogReadMilliVolts(PIN_ACS712); delay(1); }
+  for (int i = 0; i < 500; i++) { sum += acsMv(); delay(1); }
   float zero = (float)(sum / 500.0);
   bool plausible = zero >= ACS_ZERO_MIN_MV && zero <= ACS_ZERO_MAX_MV;
   acsZeroMv = zero;
   acsZeroed = plausible;
   inputRegisters[IREG_ACS_ZERO_MV] = (uint16_t)lroundf(zero);
   setStatus(ST_ACS_ZEROED, plausible);
-  Serial.printf("ACS712 zero: %.1f mV (%s)\n", zero,
+  Serial.printf("ACS712 zero: %.1f mV after the %+.0f mV bench correction (%s)\n",
+                zero, (float)ACS712_ADC_OFFSET_MV,
                 plausible ? "plausible" : "IMPLAUSIBLE - current will be invalid");
   return plausible;
 }
@@ -182,35 +235,119 @@ static float readCurrentAmps(bool &ok) {
   double sum = 0.0;
   int atRail = 0;
   for (int i = 0; i < samples; i++) {
-    float mv = analogReadMilliVolts(PIN_ACS712);
-    if (mv <= ACS_RAIL_LOW_MV || mv >= ACS_RAIL_HIGH_MV) atRail++;
-    sum += mv;
+    // The rails are where the ADC itself stops, so they are judged on the
+    // uncorrected reading; the sum uses the corrected one.
+    float raw = analogReadMilliVolts(PIN_ACS712);
+    if (raw <= ACS_RAIL_LOW_MV || raw >= ACS_RAIL_HIGH_MV) atRail++;
+    sum += raw + ACS712_ADC_OFFSET_MV;
     delayMicroseconds(50);
   }
-  float amps = ((float)(sum / samples) - acsZeroMv) / ACS712_MV_PER_A;
+  float amps = ACS712_SIGN * ((float)(sum / samples) - acsZeroMv) / ACS712_MV_PER_A;
   ok = acsZeroed && atRail < samples / 10 && amps > ACS_NEGATIVE_A;
   return amps;
 }
 
-// Vibration as the RMS of acceleration with gravity removed, expressed as an
-// equivalent velocity at the fan's running frequency. An approximation, and
+// ---------------------------------------------------------------------------
+// Accelerometer
+// ---------------------------------------------------------------------------
+//
+// The module on this bench is sold as an MPU-6050 but identifies itself as an
+// MPU-6500 (WHO_AM_I 0x70, read on 24 Sep 2026), and the Adafruit MPU6050
+// driver refuses anything that does not answer 0x68. The accelerometer
+// registers used here are the same on both parts, so both are read directly:
+// wake (PWR_MGMT_1), full scale +/-4 g (ACCEL_CONFIG), six bytes from
+// ACCEL_XOUT_H. A device with any other identity is not accepted: its
+// registers are not known to mean this.
+
+static const uint8_t MPU_REG_PWR_MGMT_1   = 0x6B;
+static const uint8_t MPU_REG_ACCEL_CONFIG = 0x1C;
+static const uint8_t MPU_REG_ACCEL_XOUT_H = 0x3B;
+static const uint8_t MPU_REG_WHO_AM_I     = 0x75;
+static const float   MPU_LSB_PER_G        = 8192.0f;   // at +/-4 g
+static const float   STANDARD_GRAVITY     = 9.80665f;
+
+static bool mpuWrite(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(mpuAddress);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+static int mpuReadByte(uint8_t address, uint8_t reg) {
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return -1;
+  if (Wire.requestFrom(address, (uint8_t)1) != 1) return -1;
+  return Wire.read();
+}
+
+static bool mpuBegin() {
+  for (uint8_t address : {(uint8_t)0x68, (uint8_t)0x69}) {
+    int who = mpuReadByte(address, MPU_REG_WHO_AM_I);
+    if (who < 0) continue;
+    const char *name = who == 0x68 ? "MPU-6050" : who == 0x70 ? "MPU-6500" : nullptr;
+    if (!name) {
+      Serial.printf("I2C 0x%02X answers WHO_AM_I 0x%02X: not an MPU-6050 or "
+                    "MPU-6500, so not used\n", address, who);
+      continue;
+    }
+    mpuAddress = address;
+    mpuName = name;
+    bool ok = mpuWrite(MPU_REG_PWR_MGMT_1, 0x01)       // awake, PLL clock
+              && mpuWrite(MPU_REG_ACCEL_CONFIG, 0x08);  // +/-4 g
+    delay(50);
+    Serial.printf("accelerometer: %s at 0x%02X (WHO_AM_I 0x%02X)%s\n", name,
+                  address, who, ok ? "" : ", but it did not accept its setup");
+    return ok;
+  }
+  Serial.println("accelerometer: none found at 0x68 or 0x69");
+  return false;
+}
+
+static bool mpuReadAccel(float &x, float &y, float &z) {
+  Wire.beginTransmission(mpuAddress);
+  Wire.write(MPU_REG_ACCEL_XOUT_H);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(mpuAddress, (uint8_t)6) != 6) return false;
+  int16_t raw[3];
+  for (int i = 0; i < 3; i++) {
+    uint8_t hi = Wire.read(), lo = Wire.read();
+    raw[i] = (int16_t)((hi << 8) | lo);
+  }
+  x = raw[0] / MPU_LSB_PER_G * STANDARD_GRAVITY;
+  y = raw[1] / MPU_LSB_PER_G * STANDARD_GRAVITY;
+  z = raw[2] / MPU_LSB_PER_G * STANDARD_GRAVITY;
+  return true;
+}
+
+// Vibration as the RMS of the varying part of the acceleration, expressed as
+// an equivalent velocity at the fan's running frequency. An approximation, and
 // documented as one rather than presented as an ISO 10816 velocity: a proper
 // velocity figure needs integration of a calibrated accelerometer signal, and
-// this is a bench fan with an MPU-6050.
+// this is a bench fan with a hobby accelerometer.
+//
+// The varying part is taken about the window's own mean, not about standard
+// gravity. Subtracting 9.80665 m/s^2 left any scale error in the sensor as a
+// constant, and the RMS reported that constant as vibration: 1.02 mm/s from
+// this MPU-6500 lying still on the bench, fans off, 24 Sep 2026.
 static float readVibrationMmS(bool &ok) {
   ok = false;
   if (!mpuPresent) return 0.0f;
   const int samples = 64;
-  double sum = 0.0;
-  sensors_event_t a, g, t;
+  float magnitude[samples];
+  double mean = 0.0;
   for (int i = 0; i < samples; i++) {
-    if (!mpu.getEvent(&a, &g, &t)) return 0.0f;
-    float magnitude = sqrtf(a.acceleration.x * a.acceleration.x +
-                            a.acceleration.y * a.acceleration.y +
-                            a.acceleration.z * a.acceleration.z);
-    float ac = magnitude - SENSORS_GRAVITY_STANDARD;
-    sum += (double)ac * ac;
+    float x, y, z;
+    if (!mpuReadAccel(x, y, z)) return 0.0f;
+    magnitude[i] = sqrtf(x * x + y * y + z * z);
+    mean += magnitude[i];
     delayMicroseconds(500);
+  }
+  mean /= samples;
+  double sum = 0.0;
+  for (int i = 0; i < samples; i++) {
+    double ac = magnitude[i] - mean;
+    sum += ac * ac;
   }
   ok = true;
   float accelRms = sqrt(sum / samples);              // m/s^2
@@ -246,11 +383,23 @@ static void listProbes() {
   int count = 0;
   while (oneWire.search(found)) {
     if (OneWire::crc8(found, 7) != found[7]) continue;
-    Serial.printf("DS18B20 on bus: {0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X}\n",
+    // The reading beside each address is what lets a person tell the probes
+    // apart: warm one in your fingers and watch which address rises. It is
+    // printed here only; the registers read probes by configured address.
+    float c = probes.getTempC(found);
+    const char *role = memcmp(found, HUB_PROBE_ADDRESS, 8) == 0 ? " = HUB"
+                     : memcmp(found, AMBIENT_PROBE_ADDRESS, 8) == 0 ? " = AMBIENT"
+                     : "";
+    Serial.printf("DS18B20 on bus: {0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X}"
+                  "  %s%s\n",
                   found[0], found[1], found[2], found[3],
-                  found[4], found[5], found[6], found[7]);
+                  found[4], found[5], found[6], found[7],
+                  (c == DEVICE_DISCONNECTED_C || c == 85.0f) ? "no reading yet"
+                      : String(c, 2).c_str(),
+                  role);
     count++;
   }
+  Serial.printf("DS18B20 probes found: %d\n", count);
   setStatus(ST_BUS_OK, count > 0);
   if (!probesConfigured) {
     Serial.println("probe addresses not configured in rig_config.h: "
@@ -323,6 +472,11 @@ ModbusMessage onWriteCoil(ModbusMessage request) {
       rezeroRequested = true;          // done in loop(), not in the handler
     }
   } else {
+    // No relay to command: refused rather than acknowledged and ignored.
+    if (!RELAYS_FITTED) {
+      return ModbusMessage(request.getServerID(), request.getFunctionCode(),
+                           ILLEGAL_DATA_ADDRESS);
+    }
     // Fan starts are staggered: three fans starting together draw about 1.2 A
     // against a 1 A supply.
     if (on && !relayOn[address] && now - lastRelayOn < RELAY_STAGGER_MS) {
@@ -334,6 +488,36 @@ ModbusMessage onWriteCoil(ModbusMessage request) {
   ModbusMessage response;
   response.add(request.getServerID(), request.getFunctionCode(), address, value);
   return response;
+}
+
+// ---------------------------------------------------------------------------
+// Serial diagnostics, for the bench. Read-only: printed from what the scan
+// already put in the registers, so the serial monitor shows exactly what a
+// Modbus master would be served.
+// ---------------------------------------------------------------------------
+
+static void printDiagnostics() {
+  const uint16_t st = inputRegisters[IREG_STATUS];
+  const int16_t ma = (int16_t)inputRegisters[IREG_CURRENT_MA];
+  const uint16_t vib = inputRegisters[IREG_VIB_MMS_X100];
+  const uint16_t supply = inputRegisters[IREG_SUPPLY_MV];
+  Serial.printf("status 0x%03X | accelerometer %s | ACS712 zero %.1f mV (%s) | current ",
+                st, (st & ST_MPU_OK) ? mpuName : "NOT read",
+                acsZeroMv, acsZeroed ? "zeroed" : "NOT zeroed");
+  if (st & ST_ACS_OK) Serial.printf("%.3f A", ma / 1000.0f);
+  else Serial.print("invalid");
+  Serial.print(" | vibration ");
+  if (st & ST_MPU_OK) Serial.printf("%.2f mm/s", vib / 100.0f);
+  else Serial.print("invalid");
+  Serial.printf(" | supply ADC %.0f mV -> ", lastSupplyAdcMv);
+  if (st & ST_SUPPLY_OK) Serial.printf("%.2f V", supply / 1000.0f);
+  else Serial.print(lastSupplyAdcMv < SUPPLY_ADC_MIN_MV
+                    ? "cannot measure (below the ADC's range)"
+                    : "cannot measure (ADC saturated)");
+  if (RUN_SWITCH_FITTED) Serial.printf(" | run switch %s", discreteInputs[0] ? "closed" : "open");
+  else Serial.print(" | run switch not fitted");
+  if (!RELAYS_FITTED) Serial.print(" | relays not fitted");
+  Serial.println();
 }
 
 // ---------------------------------------------------------------------------
@@ -367,8 +551,20 @@ void setup() {
   inputRegisters[IREG_TEMP_AMB_X10] = asRegister(INVALID_S16);
   inputRegisters[IREG_SUPPLY_MV]    = INVALID_U16;
 
+  setStatus(ST_SWITCH_FITTED, RUN_SWITCH_FITTED);
+  setStatus(ST_RELAYS_FITTED, RELAYS_FITTED);
+  {
+    const char *cal =
+        esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_TP) == ESP_OK ? "eFuse two-point"
+      : esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF) == ESP_OK ? "eFuse Vref"
+      : "default Vref (this chip carries no ADC calibration)";
+    Serial.printf("\nCRPMS bench rig. ADC calibration: %s. Relays %s, run switch %s.\n",
+                  cal, RELAYS_FITTED ? "fitted" : "NOT fitted",
+                  RUN_SWITCH_FITTED ? "fitted" : "NOT fitted");
+  }
+
   // Zero the current sensor with the load off: the relays are de-energised
-  // above and have had time to open. If this is wrong, every current reading is
+  // above and have had time to open (or, with no relays, 12 V is not yet on). If this is wrong, every current reading is
   // wrong, so a zero outside plausibility leaves current invalid until a good
   // re-zero (coil 2) rather than publishing offset readings.
   delay(RELAY_SETTLE_MS);
@@ -383,7 +579,18 @@ void setup() {
   listProbes();
 
   Wire.begin();
-  mpuPresent = mpu.begin();
+  // Which I2C addresses answer, printed once at boot, so "not detected" can
+  // be told apart from "nothing on the bus".
+  int i2cFound = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf("I2C device at 0x%02X\n", addr);
+      i2cFound++;
+    }
+  }
+  if (i2cFound == 0) Serial.println("I2C: no device answers on SDA 21 / SCL 22");
+  mpuPresent = mpuBegin();
   setStatus(ST_MPU_OK, mpuPresent);
 
   modbusServer.registerWorker(MODBUS_UNIT_ID, READ_INPUT_REGISTER,
@@ -418,6 +625,7 @@ void loop() {
   if (now - lastProbeList >= PROBE_LIST_INTERVAL_MS) {
     lastProbeList = now;
     listProbes();
+    printDiagnostics();
   }
 
   if (now - lastTempRequest >= DS18B20_INTERVAL_MS) {
@@ -454,17 +662,20 @@ void loop() {
 
   // The supply voltage is a MEASUREMENT whatever it reads: 9.8 V is exactly
   // the reading worth having during a brown-out. Only an ADC pinned at its
-  // ceiling is invalid, because then the true voltage is unknown. Whether the
-  // voltage is acceptable is the monitoring system's judgement (a range rule on
-  // RIG_SUPPLY_V), not the sensor's.
-  float adcMv = analogReadMilliVolts(PIN_SUPPLY_ADC);
-  bool supplyOk = adcMv < SUPPLY_ADC_MAX_MV;
+  // ceiling is invalid, because then the true voltage is unknown -- and so is
+  // a reading under the floor, where the ADC cannot tell small from none.
+  // Whether the voltage is acceptable is the monitoring system's judgement (a
+  // range rule on RIG_SUPPLY_V), not the sensor's.
+  float adcMv = readSupplyAdcMv();
+  bool supplyOk = adcMv >= SUPPLY_ADC_MIN_MV && adcMv < SUPPLY_ADC_MAX_MV;
   inputRegisters[IREG_SUPPLY_MV] = supplyOk
       ? (uint16_t)constrain(lroundf(adcMv * SUPPLY_DIVIDER), 0, 65534)
       : INVALID_U16;
   setStatus(ST_SUPPLY_OK, supplyOk);
 
-  discreteInputs[0] = (digitalRead(PIN_RUN_SWITCH) == LOW);
+  // Not fitted: the pin floats to its pull-up and would read "stopped". The
+  // bit is still served (false), and status bit 8 says it means nothing.
+  discreteInputs[0] = RUN_SWITCH_FITTED && digitalRead(PIN_RUN_SWITCH) == LOW;
   discreteInputs[1] = relayOn[0];
   discreteInputs[2] = relayOn[1];
 
