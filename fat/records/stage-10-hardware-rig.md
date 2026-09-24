@@ -381,6 +381,69 @@ ACS712 is ratiometric; its zero is VCC/2), and whether a divider on OUT into
 the ADC's characterised range helps; the in-series meter check; mounting the
 MPU-6500 on a fan frame.
 
+### The current investigated with a meter — 24 September, ~15:45 UTC
+
+All three fans spinning, 12 V on. The user's meter, on its 20 V range (so each
+reading is limited to 10 mV, which at 185 mV/A is ±0.05 A):
+
+| Measured | Reading |
+|---|---|
+| ACS712 OUT | 2.52–2.53 V |
+| ACS712 VCC | 4.94–5.00 V, so VCC/2 = 2.47–2.50 V |
+| True current, from (OUT − VCC/2) / 0.185 V/A | **≈ 0.1–0.25 A**, limited by the meter's resolution |
+| ACS712 GND relative to ESP32 GND | **+12 mV** |
+| 12 V negative relative to ESP32 GND | **+136 mV** |
+
+What that settles:
+
+- **0.46 A was never the expected current.** It is the sum of the fans'
+  *rated maximum* currents, and was quoted in this record and CLAUDE.md as if
+  it were their draw. They draw roughly 0.1–0.25 A.
+- **The 0.88 A readings were wrong**, by a factor of about four; the later
+  ~0.13 A is plausible. The rig's current reading has moved between 0.88 A and
+  0.12 A for the same three spinning fans, so no single boot's reading is to
+  be believed without a meter beside it.
+- **The ground is bad.** The 12 V negative sits 136 mV above the ESP32's
+  ground at this current: the pigtail's contact is roughly 0.5–1 Ω, and the fan
+  return current flows through it. The ACS712's ground is 12 mV off the ESP32's
+  as well — 65 mA of apparent current from the ground alone. A contact that
+  moves when touched is consistent with the jump at 15:23:38 (1.26 A spike,
+  supply dip to 11.65 V) and with the zero moving 80 mV between boots after
+  12 V was first connected.
+
+**RIG_CURRENT remains unverified**, and its readings in the archive for 24
+September are not measurements of the fans' current. Nothing in the archive is
+changed; this record is where that is said.
+
+No hardware changes tonight. Next session, in order:
+
+1. Move the 12 V negative and the fan returns to a solid joint off the
+   breadboard, joined to the ESP32 ground at one point.
+2. Add a VCC/2 reference: two 4.7 kΩ from ACS712 VCC to ACS712 GND. OUT minus
+   the reference, on the meter's 200 mV range, gives the true current to about
+   ±1 mA, and is ratiometric, so it cancels the 5 V rail.
+3. Recalibrate the firmware's current against that, and only then consider
+   RIG_CURRENT a measurement.
+
+Two cautions for that plan, both from the readings above:
+
+- **OUT minus VCC/2 is not yet the current.** The ACS712's datasheet allows
+  its zero-current output to sit up to about ±40 mV from VCC/2 — ±0.2 A. So the
+  "≈ 0.1–0.25 A" above carries that uncertainty too, and the reference method
+  needs its own no-load reading: (OUT − ref) with 12 V off, subtracted from
+  (OUT − ref) with the fans running.
+- **The sign is open again.** On the meter, OUT (2.52–2.53 V) sits *above*
+  VCC/2 (2.47–2.50 V), which would make the fans' current push OUT up —
+  `ACS712_SIGN = +1`, not the −1 set at 15:17. The −1 was inferred from the
+  reading going negative the moment 12 V was connected, and a ground that
+  shifts by 136 mV when the fans run could produce that on its own. The change
+  in (OUT − ref) between fans off and fans on, after the rewire, decides it.
+
+The firmware now also prints a `drift` line every 10 s — the ADC's raw
+readings on both analogue pins, the chip's (uncalibrated) temperature and the
+uptime — for the no-load drift test that follows the rewire. Built, not yet
+flashed.
+
 ## Signature
 
 | Role | Name | Date |

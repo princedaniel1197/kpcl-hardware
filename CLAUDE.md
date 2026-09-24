@@ -113,7 +113,7 @@ Real sensors on a bench, read by an ESP32 publishing Modbus. Available:
 | ESP32 38-pin NodeMCU | 2 | Field device / Modbus server |
 | 12 V 0.18 A fan | 2 | The machine being monitored |
 | 12 V 4010 fan | 1 | Second switchable load |
-| ACS712 5 A current sensor | 1 | Load current, ~0.46 A total, 185 mV/A |
+| ACS712 5 A current sensor | 1 | Load current, 185 mV/A. The fans' *rated* maximum sums to ~0.46 A; a meter on 24 Sep 2026 put their actual draw at ~0.1–0.25 A |
 | ACS712 30 A current sensor | 1 | Spare — too coarse for this load |
 | DS18B20 probe | 2 | Motor hub temperature, ambient |
 | MPU-6050 (the module fitted identifies as an **MPU-6500**, WHO_AM_I 0x70) | 1 | Vibration, and coast-down detection |
@@ -185,5 +185,10 @@ Open on the rig (not blocking a stage): the ACS712 zero drift and unverified
 current scale — check whether the drift tracks the USB 5 V rail and whether a
 divider on OUT into the ADC's characterised range helps; the in-series meter
 check; mount the MPU-6500 on a fan frame; fit the relays and run switch.
+The rig's ground is bad (12 V negative 136 mV above the ESP32's ground with
+the fans running): next session, move the 12 V negative and the fan returns to
+a solid off-breadboard joint, add a VCC/2 reference (two 4.7 kΩ across the
+ACS712), and recalibrate the current against OUT minus that reference.
+`RIG_CURRENT` is not a measurement until then.
 
 Update this section as those close.

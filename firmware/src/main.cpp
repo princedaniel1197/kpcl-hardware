@@ -207,7 +207,7 @@ static bool zeroCurrentSensor() {
   if (!RELAYS_FITTED) readSupplyAdcMv();
   if (!loadIsOff()) {
     // Refused, not taken: a zero with the fans running would publish every
-    // later current as a Good reading about 0.46 A wrong.
+    // later current as a Good reading wrong by the fans' whole current.
     acsZeroed = false;
     setStatus(ST_ACS_ZEROED, false);
     if (!RELAYS_FITTED) {
@@ -569,6 +569,22 @@ ModbusMessage onWriteCoil(ModbusMessage request) {
 // Modbus master would be served.
 // ---------------------------------------------------------------------------
 
+// A line for investigating the current drift (24 Sep 2026): the ADC's own
+// readings on both analogue pins, uncorrected and averaged, the chip's
+// internal temperature (uncalibrated -- a trend, not a temperature), and the
+// uptime, so a log over minutes can separate the sensor from the ADC.
+static void printDriftDiagnostics() {
+  double acs = 0, sup = 0;
+  const int n = 2000;
+  for (int i = 0; i < n; i++) {
+    acs += analogReadMilliVolts(PIN_ACS712);
+    sup += analogReadMilliVolts(PIN_SUPPLY_ADC);
+  }
+  Serial.printf("drift t=%lus acs_adc_mv=%.2f supply_adc_mv=%.2f chip_c=%.1f zero_mv=%.1f\n",
+                (unsigned long)(millis() / 1000), acs / n, sup / n, temperatureRead(),
+                acsZeroMv);
+}
+
 static void printDiagnostics() {
   const uint16_t st = inputRegisters[IREG_STATUS];
   const int16_t ma = (int16_t)inputRegisters[IREG_CURRENT_MA];
@@ -762,6 +778,7 @@ void loop() {
     lastProbeList = now;
     listProbes();
     printDiagnostics();
+    printDriftDiagnostics();
   }
 
   if (now - lastTempRequest >= DS18B20_INTERVAL_MS) {
