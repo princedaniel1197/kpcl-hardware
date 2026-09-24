@@ -9,6 +9,17 @@
 
 ## 1. Role-based access (§509)
 
+> **Withdrawn, 24 Sep 2026.** Token sign-in and role-based access were removed
+> from the API and the visualisation by decision of the project owner, who was
+> told beforehand that this drops §509, breaks FAT test T-18 and leaves the API
+> readable by anyone who can reach it. Removed: `api/auth.py` (the bearer token
+> on every route, the permission table, the station scope, the WebSocket
+> subprotocol), `api/test_auth.py`, T-18 (now listed as withdrawn in the ITP and
+> the FAT report), `make token`, and the UI's sign-in. Kept: the access library
+> (`ops/access.py`), the `principal` table and their tests, used by nothing in
+> the API. The API still listens on 127.0.0.1 only. What follows is the record
+> of what was built and measured before the removal.
+
 Six roles as the clause names them, with permissions as data.
 
 ```

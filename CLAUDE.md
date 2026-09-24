@@ -169,14 +169,16 @@ re-run on a clean tree and passed 15 of 15.
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
 | 10 hardware rig | **passed on the bench, 24 Sep** (run 2, after run 1 found a Good 99.3 °C on the probe replug, now fixed). `RIG_CURRENT` is **permanently unverified** by decision: published Uncertain, "uncalibrated - bench demo only", used by no KPI or alert. Relays and run switch not fitted |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
-| 14 FAT | automated FAT **15 of 15** on a clean tree, 23 Sep 05:37 UTC (`fat/reports/FAT-20260923T053731Z.md`); every automated test states what would make it fail; hold and witness points await signature |
+| 14 FAT | automated FAT **15 of 15** on a clean tree, 23 Sep 05:37 UTC (`fat/reports/FAT-20260923T053731Z.md`); every automated test states what would make it fail; hold and witness points await signature. **T-18 (§509) withdrawn 24 Sep** with the removal of access control; the plan now has 14 automated tests and has not been re-run since |
 
 `make start` runs the whole system in the background — database, simulator
 bridging the bench rig (`RIG_MODBUS_HOST`, default 192.168.1.89), collector,
 engine, API and UI, logs in `logs/` — and `make stop` stops it cleanly
 (`make status` in between). The pieces also run one at a time: `make sim`,
-`make collector`, `make engine`, `make api`, `make ui`. The UI needs a token
-from `make token`.
+`make collector`, `make engine`, `make api`, `make ui`. There is no sign-in:
+token access and role-based access (§509) were removed from the API and the UI
+by decision on 24 Sep 2026, and FAT test T-18 was withdrawn with them. Anyone
+who can reach the API reads everything it serves; it listens on 127.0.0.1.
 
 Outstanding for a person:
 

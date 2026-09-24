@@ -21,10 +21,8 @@ from pathlib import Path
 
 import psycopg
 
-from fat import tests as fat_tests
 from fat.plan import PLAN
 from fat.tests import AUTOMATED, HOLD, WITNESS, Result
-from ops import access
 
 ROOT = Path(__file__).parent.parent
 DSN = os.environ.get("CRPMS_DSN", "postgresql://crpms:crpms@localhost:5432/crpms")
@@ -80,31 +78,21 @@ def run(selected: set[str] | None = None, skip: set[str] | None = None,
 
     with psycopg.connect(DSN, autocommit=True) as conn:
         env = environment(conn)
-        # A principal for this run, least privilege (corporate: read only),
-        # revoked when the run ends. Created and revoked through the audited
-        # path like any other.
-        username = f"fat.runner.{began.strftime('%Y%m%dT%H%M%SZ')}"
-        fat_tests.API_TOKEN = access.create_principal(
-            conn, username, "corporate", actor="fat.runner")
-        try:
-            for test in PLAN:
-                if selected and test.ref not in selected:
-                    continue
-                if skip and test.ref in skip:
-                    continue
-                if test.kind != AUTOMATED or test.run is None:
-                    continue
-                print(f"  {test.ref}  {test.title} ... ", end="", flush=True)
-                try:
-                    result = test.run(conn)
-                except Exception as exc:                      # noqa: BLE001
-                    result = Result(False, f"error: {exc}")
-                results[test.ref] = result
-                print("PASS" if result.passed else
-                      "NOT RUN" if result.passed is None else "FAIL")
-        finally:
-            access.revoke(conn, username, actor="fat.runner")
-            fat_tests.API_TOKEN = None
+        for test in PLAN:
+            if selected and test.ref not in selected:
+                continue
+            if skip and test.ref in skip:
+                continue
+            if test.kind != AUTOMATED or test.run is None:
+                continue
+            print(f"  {test.ref}  {test.title} ... ", end="", flush=True)
+            try:
+                result = test.run(conn)
+            except Exception as exc:                      # noqa: BLE001
+                result = Result(False, f"error: {exc}")
+            results[test.ref] = result
+            print("PASS" if result.passed else
+                  "NOT RUN" if result.passed is None else "FAIL")
 
     ended = dt.datetime.now(dt.timezone.utc)
     report = render(env, results, began, ended, dirty=bool(dirty))
@@ -234,6 +222,11 @@ def render(env: dict, results: dict[str, Result], began, ended,
         "probe-failure test on real hardware, but its current reading is "
         "uncalibrated -- published as Uncertain and used by no KPI or alert -- "
         "and its relays and run switch are not fitted.",
+        "",
+        "There is **no access control** on the API or the visualisation. Token "
+        "sign-in and role-based access (§509) were removed by decision on "
+        "24 Sep 2026, and T-18, which tested them, was withdrawn: anyone who "
+        "can reach the API reads everything it serves.",
         "",
         "Plant physics is limited to definitional ratios. Cylinder efficiency "
         "and condenser performance require published steam tables and are not "

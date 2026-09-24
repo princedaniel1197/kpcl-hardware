@@ -16,7 +16,7 @@ its clause, condition, method and numeric criterion — is generated from
 | Source | `make sim` — the OPC UA simulator |
 | Acquisition | `make collector` |
 | Engine | `make engine` — KPIs, quality rules, event frames |
-| API and UI | `make api`, `make ui` (the UI needs a token: `make token`) |
+| API and UI | `make api`, `make ui` (no sign-in) |
 
 **Commit first.** Every report states the git commit it was produced from. The
 runner refuses to run on a working tree with uncommitted changes, because the

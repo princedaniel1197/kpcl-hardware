@@ -60,7 +60,7 @@ start() {
     # The collector must find the simulator's endpoint on its first try.
     [ "$name" = sim ] && sleep 4
   done
-  echo "UI: http://localhost:5173 (sign in with a token from 'make token')"
+  echo "UI: http://localhost:5173"
 }
 
 stop_one() {

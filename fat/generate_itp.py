@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-from fat.plan import PLAN
+from fat.plan import PLAN, WITHDRAWN
 from fat.tests import AUTOMATED, HOLD, WITNESS
 
 
@@ -59,6 +59,11 @@ def render() -> str:
     for t in PLAN:
         if t.note:
             lines.append(f"- **{t.ref}** — {t.note}")
+    if WITHDRAWN:
+        lines += ["", "## Withdrawn", "", "| Ref | Clause | Title | Why |",
+                  "|---|---|---|---|"]
+        lines += [f"| {ref} | {clause} | {title} | {why} |"
+                  for ref, clause, title, why in WITHDRAWN]
     lines += [
         "",
         "## Clause coverage",
@@ -80,6 +85,8 @@ def render() -> str:
                 break
         return int(digits) if digits else 0
 
+    for ref, clause, _, _ in WITHDRAWN:
+        clauses.setdefault(clause, []).append(f"none ({ref} withdrawn)")
     for clause in sorted(clauses, key=clause_order):
         lines.append(f"| {clause} | {', '.join(clauses[clause])} |")
     lines += [

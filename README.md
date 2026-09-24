@@ -67,8 +67,7 @@ make stop            # ... and stopped cleanly
 make sim             # the OPC UA DCS simulator
 make collector       # acquisition
 make engine          # KPIs, quality rules, event frames, alerts, capacity
-make api             # FastAPI on :8000 — every call needs a token
-make token           # a read-only token for the UI, shown once
+make api             # FastAPI on :8000 — no sign-in (see below)
 make ui              # the visualisation on :5173
 ```
 
@@ -118,8 +117,7 @@ pipeline. An asset model where adding a unit is one line of configuration.
 Event frames captured continuously and compared milestone by milestone.
 Redundancy with no arbitration, because the schema makes a duplicate
 impossible, and zero missing samples across a killed collector checked against
-the source's own record of what it published. Every API call authenticated and
-scoped by role.
+the source's own record of what it published.
 
 Each of those was measured, and the measurement is in `fat/records/` with the
 defects found on the way there.
@@ -142,8 +140,10 @@ Heat rate, auxiliary power and specific coal consumption are implemented;
 cylinder efficiency and condenser performance need published steam tables and
 are **not implemented**, rather than approximated.
 
-The access control is not an identity system: no password policy, no lockout, no
-MFA, no SSO, no token expiry. The simulator's control API is unauthenticated.
+There is no access control on the API or the visualisation. Token sign-in and
+role-based access (§509) were removed by decision on 24 Sep 2026; anyone who can
+reach the API reads everything it serves, so it listens on 127.0.0.1 only. The
+simulator's control API is unauthenticated.
 The backup has no off-site copy and no encryption at rest. KPIs are computed
 live and not recomputed for a period the archive was down.
 

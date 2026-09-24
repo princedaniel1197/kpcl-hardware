@@ -9,8 +9,9 @@ lockout, no multi-factor, no SSO, no session management and no token rotation
 schedule. A real deployment puts authentication behind the customer's own
 directory. What is demonstrated here is that every API call carries a principal,
 that the principal has exactly one role, and that the role decides what the call
-may do — which is the part §509 is actually about. The API enforces it on every
-route (api/auth.py); a route with no permission declared is refused.
+may do — which is the part §509 is actually about. Nothing enforces it any
+more: token access was removed from the API and the UI by decision on
+24 Sep 2026 (api/README.md).
 
 Tokens are stored as SHA-256 and shown once. The plaintext is never persisted,
 never logged, and cannot be recovered; a lost token is replaced, not looked up.

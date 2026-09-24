@@ -4,14 +4,14 @@ Orianode Technologies · CRPMS Demonstrator · for KPCL
 
 **Generated from `fat/plan.py`.** Do not edit by hand: the runner executes this same list, and a hand-edited copy would describe tests that are not the ones being run.
 
-Generated 2026-09-23T04:09:49+00:00.
+Generated 2026-09-24T17:50:57+00:00.
 
 ## Summary
 
 | | |
 |---|---|
-| Tests | 20 |
-| Automated | 15 |
+| Tests | 19 |
+| Automated | 14 |
 | Hold points | 3 |
 | Witness points | 2 |
 
@@ -38,7 +38,6 @@ A hold point stops the FAT until it is signed off. A witness point must be obser
 | T-15 | §341, §392 | Adding a unit is configuration | An existing asset model | Add one object to config/asset_model.json and re-seed | **A complete unit appears with its tags; no Python edited** | witness | | | |
 | T-16 | §469, §470 | Operator can read the display unaided | The visualisation, during an archive outage and recovery | A colleague who has not seen it describes what happened | **Describes the outage and the recovery without being told** | witness | | | |
 | T-17 | §512–518, §651 | Backup and restore to a clean environment | A populated archive | ops/backup.sh then ops/restore.sh into a separate container | **Restored row count equals the source; RTO and RPO documented** | hold | | | |
-| T-18 | §509 | Role-based access | The running API, six roles, permissions as data | api/test_auth.py against the live API, plus the role and token tests | **No token 401 on every route; another station 403; unmapped data refused to a station; undeclared route refused; tokens stored hashed** | automated | | | |
 | T-19 | §503 | Machine-readable export | A populated archive | ops.export over a window, then inspect the archive produced | **CSV and JSON with quality on every row; Bad exports an empty value** | automated | | | |
 | T-20 | §433 | Audit trail on configuration change | Configuration changes of every kind | The audit tests, and every row of audit_log | **Every change recorded with actor, time, old value, new value and reason; unchanged values record nothing; the log cannot be edited** | automated | | | |
 
@@ -60,7 +59,6 @@ Every automated criterion must be one the system could fail. A test with no answ
 | T-12 | Non-intrusiveness | the collector polls instead of subscribing, or subscribes much faster than configured -- see the recorded run with an aggressive read-only poller in fat/records/stage-14-fat.md |
 | T-13 | Time source loss | the collector fills a missing SourceTimestamp or ServerTimestamp from anything, or numbers a repeated one |
 | T-14 | No control path | any collector source file calls write_value, call_method, add_*/delete_* node management or similar, even in a comment |
-| T-18 | Role-based access | any route loses its principal dependency, the station scope is not applied, or a route is added without a declared permission |
 | T-19 | Machine-readable export | the export drops the StatusCode column, or writes 0 for a Bad sample |
 | T-20 | Audit trail on configuration change | a configuration change is made without an audit row, an audit row lacks its old value, or audit_log accepts an UPDATE or DELETE |
 
@@ -75,6 +73,12 @@ Every automated criterion must be one the system could fail. A test with no answ
 - **T-15** — Witness point. Demonstrated live; result in fat/records/stage-05-asset-framework.md.
 - **T-16** — Witness point. Cannot be automated: the criterion is a human judgement, and the author is the last person whose opinion of legibility is worth anything.
 - **T-17** — Hold point. Result in docs/backup-and-restore.md. Verify by ROW COUNT: the first version of this procedure reported success while losing 12% of the archive.
+
+## Withdrawn
+
+| Ref | Clause | Title | Why |
+|---|---|---|---|
+| T-18 | §509 | Role-based access | Withdrawn 24 Sep 2026. Token sign-in and role-based access were removed from the API and the UI by decision, with api/auth.py and api/test_auth.py. §509 is not demonstrated: anyone who can reach the API reads everything it serves. |
 
 ## Clause coverage
 
@@ -99,7 +103,7 @@ Every automated criterion must be one the system could fail. A test with no answ
 | §470 | T-16 |
 | §472 | T-11 |
 | §503 | T-19 |
-| §509 | T-18 |
+| §509 | none (T-18 withdrawn) |
 | §512–518 | T-17 |
 | §528 | T-01, T-02, T-03, T-04 |
 | §648 | T-08 |

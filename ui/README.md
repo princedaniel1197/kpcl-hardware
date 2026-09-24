@@ -2,16 +2,13 @@
 
 ```bash
 make api      # FastAPI on :8000 — event stream and archive
-make token    # a read-only access token, shown once
 make ui       # Vite dev server on :5173, proxying /api and /ws
 ```
 
-Every API call is authenticated (§509), so the first screen asks for a token.
-It is kept in `localStorage` until **Sign out** or until the API refuses it
-(revoked or expired) — so anyone using that browser profile can open the
-dashboard — and is sent as a bearer header, and on the WebSocket as a
-subprotocol; it never appears in a URL. Revoke a token with
-`python -m ops.access revoke NAME`.
+There is no sign-in: token access (§509) was removed from the API and this
+interface by decision on 24 Sep 2026, and the dashboard opens straight away.
+If the API does not answer before the first read lands, the screen says so
+rather than waiting on an empty ledger.
 
 Built last, deliberately. It hangs off real events from a working system; built
 first it would have been a nice interface over nothing.
@@ -58,8 +55,8 @@ Vercel builds this directory on every push to `main` (`vercel.json` at the
 repository root; `.vercelignore` keeps everything but `ui/` and `config/` out,
 so the Python `api/` is never deployed as a function). What it hosts is the
 interface alone: the API, collector, engine and archive run on the station
-laptop (`make start`), and the hosted copy has no data behind it. Signing in
-there says that the API did not answer, rather than showing an empty ledger.
+laptop (`make start`), and the hosted copy has no data behind it: it opens on
+a page saying the API is not reachable, rather than an empty ledger.
 
 ## Every value carries its quality, time and provenance
 

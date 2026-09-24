@@ -4,10 +4,11 @@ The WebSocket relays the collector's own event stream (collector/event_server.py
 which deliberately does not pass through the archive. The REST endpoints read
 the archive.
 
-EVERY ROUTE IS AUTHENTICATED AND AUTHORISED (§509). Each takes the `principal`
-dependency from api/auth.py, which resolves a bearer token and checks the
-route's permission from one table. The station role is scoped to its station on
-every route that returns station data.
+NO ROUTE IS AUTHENTICATED. Token sign-in and role-based access (§509) were
+removed from the API and the UI by decision on 24 Sep 2026: anyone who can
+reach this service reads everything it serves. It listens on 127.0.0.1 unless
+told otherwise; do not expose it beyond the station laptop without putting
+access control back in front of it.
 
 ONE RULE RUNS THROUGH EVERY ENDPOINT. Quality is returned with every value, and
 a value that is not Good is returned as null with its StatusCode and its reason
@@ -25,12 +26,8 @@ import os
 from contextlib import asynccontextmanager
 
 import psycopg
-from fastapi import (Depends, FastAPI, HTTPException, Query, WebSocket,
-                     WebSocketDisconnect)
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
-from api import auth
-from ops.access import Principal
 
 log = logging.getLogger("api")
 
@@ -44,43 +41,25 @@ COLLECTOR_EVENTS = os.environ.get("CRPMS_COLLECTOR_EVENTS",
 
 
 class Hub:
-    """Fans live events out to connected browsers, each seeing only what its
-    principal may see."""
+    """Fans live events out to connected browsers."""
 
     def __init__(self) -> None:
-        self.clients: dict[WebSocket, Principal] = {}
+        self.clients: set[WebSocket] = set()
         self.received = 0
         self.recent: list[dict] = []
-        self.stations: dict[str, str | None] = {}
-
-    async def refresh_stations(self) -> None:
-        try:
-            self.stations = await auth.tag_stations()
-        except psycopg.Error:
-            # Keep the last map: the archive being down is exactly when the
-            # event stream has something to show.
-            pass
-
-    def visible(self, who: Principal, event: dict) -> bool:
-        """An event about a tag is shown only to a principal who may see that
-        tag's station. Events about the pipeline itself carry no tag."""
-        tag = event.get("tag")
-        return tag is None or who.may_see_station(self.stations.get(tag))
 
     async def publish(self, event: dict) -> None:
         self.received += 1
         self.recent.append(event)
         del self.recent[:-500]
         dead = []
-        for client, who in list(self.clients.items()):
-            if not self.visible(who, event):
-                continue
+        for client in list(self.clients):
             try:
                 await client.send_json(event)
             except Exception:
                 dead.append(client)
         for client in dead:
-            self.clients.pop(client, None)
+            self.clients.discard(client)
 
 
 hub = Hub()
@@ -89,7 +68,6 @@ hub = Hub()
 async def _listen() -> None:
     """Subscribe to the collector's event stream and fan it out to browsers."""
     import websockets
-    await hub.refresh_stations()
     while True:
         try:
             async with websockets.connect(COLLECTOR_EVENTS,
@@ -105,23 +83,14 @@ async def _listen() -> None:
             await asyncio.sleep(2)
 
 
-async def _refresh_stations() -> None:
-    while True:
-        await asyncio.sleep(60)
-        await hub.refresh_stations()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    tasks = [asyncio.create_task(_listen()),
-             asyncio.create_task(_refresh_stations())]
+    task = asyncio.create_task(_listen())
     yield
-    for task in tasks:
-        task.cancel()
+    task.cancel()
 
 
-# The generated schema and docs pages carry no data, but they are unauthenticated,
-# so they are off unless asked for.
+# The generated schema and docs pages are off unless asked for.
 _DOCS = os.environ.get("CRPMS_API_DOCS") == "1"
 app = FastAPI(title="CRPMS API", version="1.0", lifespan=lifespan,
               description="Event stream and archive for the CRPMS visualisation.",
@@ -136,7 +105,7 @@ UI_ORIGINS = [o.strip() for o in os.environ.get(
     if o.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=UI_ORIGINS,
                    allow_methods=["GET"],
-                   allow_headers=["Authorization", "Content-Type"])
+                   allow_headers=["Content-Type"])
 
 
 async def fetch(sql: str, params: tuple = ()) -> list[tuple]:
@@ -146,37 +115,32 @@ async def fetch(sql: str, params: tuple = ()) -> list[tuple]:
             return await cur.fetchall()
 
 
+async def _known_tags(names: list[str]) -> set[str]:
+    rows = await fetch("SELECT name FROM tag WHERE name = ANY(%s)", (names,))
+    return {r[0] for r in rows}
+
+
 # -- live --------------------------------------------------------------------
 
 @app.websocket("/ws/events")
 async def ws_events(socket: WebSocket) -> None:
-    who = await auth.websocket_principal(socket)
-    if who is None:
-        return
-    await socket.accept(subprotocol=auth.SUBPROTOCOL)
-    hub.clients[socket] = who
+    await socket.accept()
+    hub.clients.add(socket)
     # Replay what just happened, so a browser opened mid-outage sees the state
     # rather than an empty canvas until the next event.
     for event in hub.recent[-100:]:
-        if hub.visible(who, event):
-            await socket.send_json(event)
+        await socket.send_json(event)
     try:
         while True:
             await socket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        hub.clients.pop(socket, None)
-
-
-@app.get("/api/whoami")
-async def whoami(who: Principal = Depends(auth.principal)) -> dict:
-    return {"username": who.username, "role": who.role, "station": who.station,
-            "permissions": sorted(who.permissions)}
+        hub.clients.discard(socket)
 
 
 @app.get("/api/status")
-async def status(who: Principal = Depends(auth.principal)) -> dict:
+async def status() -> dict:
     rows = await fetch(
         "SELECT instance, alive, is_leader, samples, link_up, buffer_depth,"
         " EXTRACT(epoch FROM age)::float FROM collector_leader")
@@ -193,7 +157,7 @@ async def status(who: Principal = Depends(auth.principal)) -> dict:
 # -- tags and trends ----------------------------------------------------------
 
 @app.get("/api/tags")
-async def tags(who: Principal = Depends(auth.principal)) -> list[dict]:
+async def tags() -> list[dict]:
     rows = await fetch(
         "SELECT t.id, t.name, t.description, t.engineering_unit, t.range_low,"
         " t.range_high, t.source_system, e.asset_code, e.context->>'station'"
@@ -201,13 +165,12 @@ async def tags(who: Principal = Depends(auth.principal)) -> list[dict]:
     return [{"id": r[0], "name": r[1], "description": r[2], "unit": r[3],
              "range_low": r[4], "range_high": r[5], "source_system": r[6],
              "asset_code": r[7], "station": r[8]}
-            for r in rows if who.may_see_station(r[8])]
+            for r in rows]
 
 
 @app.get("/api/trend/{tag_name}")
 async def trend(tag_name: str, minutes: float = Query(10, gt=0, le=1440),
-                limit: int = Query(5000, gt=0, le=50000),
-                who: Principal = Depends(auth.principal)) -> dict:
+                limit: int = Query(5000, gt=0, le=50000)) -> dict:
     """A trend, with quality on every point.
 
     A point that is not Good is returned with `value: null` and its StatusCode.
@@ -218,10 +181,8 @@ async def trend(tag_name: str, minutes: float = Query(10, gt=0, le=1440),
     `server_ts` and `transit_ms` are null for a sample no server stamped -- the
     collector's own health, or a DataValue that arrived without one.
     """
-    stations = await auth.tag_stations([tag_name])
-    if tag_name not in stations:
+    if not await _known_tags([tag_name]):
         raise HTTPException(404, f"no such tag: {tag_name}")
-    auth.refuse_station(who, stations[tag_name], f"tag {tag_name}")
     rows = await fetch(
         "SELECT s.source_ts, s.server_ts, s.value, s.quality,"
         "       quality_class(s.quality)"
@@ -240,7 +201,7 @@ async def trend(tag_name: str, minutes: float = Query(10, gt=0, le=1440),
 # -- asset hierarchy -----------------------------------------------------------
 
 @app.get("/api/assets")
-async def assets(who: Principal = Depends(auth.principal)) -> list[dict]:
+async def assets() -> list[dict]:
     rows = await fetch(
         "SELECT e.id, e.asset_code, e.name, e.level, e.parent_id, t.name,"
         " e.context->>'station'"
@@ -248,14 +209,11 @@ async def assets(who: Principal = Depends(auth.principal)) -> list[dict]:
         " ORDER BY e.asset_code")
     return [{"id": r[0], "asset_code": r[1], "name": r[2], "level": r[3],
              "parent_id": r[4], "template": r[5], "station": r[6]}
-            for r in rows if who.may_see_station(r[6])]
+            for r in rows]
 
 
 @app.get("/api/assets/{asset_code}/attributes")
-async def attributes(asset_code: str,
-                     who: Principal = Depends(auth.principal)) -> list[dict]:
-    auth.refuse_station(who, await auth.element_station(asset_code),
-                        f"element {asset_code}")
+async def attributes(asset_code: str) -> list[dict]:
     rows = await fetch(
         "SELECT a.name, t.name, t.engineering_unit, a.static_value"
         " FROM element e JOIN attribute a ON a.element_id = e.id"
@@ -270,8 +228,7 @@ async def attributes(asset_code: str,
 # -- KPIs ----------------------------------------------------------------------
 
 @app.get("/api/kpis")
-async def kpis(asset_code: str | None = None,
-               who: Principal = Depends(auth.principal)) -> list[dict]:
+async def kpis(asset_code: str | None = None) -> list[dict]:
     """Latest KPI value per definition and element, with quality and reason.
 
     A Bad KPI returns `value: null` with the reason naming the offending input.
@@ -282,8 +239,7 @@ async def kpis(asset_code: str | None = None,
     sql = ("SELECT DISTINCT ON (d.name, e.asset_code)"
            " d.name, d.classification, k.kpi_version, e.asset_code, k.ts,"
            " k.value, k.quality, quality_class(k.quality), k.reason,"
-           " d.engineering_unit, d.reference_value, d.validity_low, d.validity_high,"
-           " e.context->>'station'"
+           " d.engineering_unit, d.reference_value, d.validity_low, d.validity_high"
            " FROM kpi_value k"
            " JOIN kpi_definition d ON d.id = k.kpi_definition_id"
            " JOIN element e ON e.id = k.element_id")
@@ -298,15 +254,14 @@ async def kpis(asset_code: str | None = None,
              "quality": r[6], "quality_class": r[7], "reason": r[8],
              "unit": r[9], "reference": r[10],
              "validity_low": r[11], "validity_high": r[12]}
-            for r in rows if who.may_see_station(r[13])]
+            for r in rows]
 
 
 # -- event frames ---------------------------------------------------------------
 
 @app.get("/api/events")
 async def event_frames(asset_code: str | None = None,
-                       limit: int = Query(20, gt=0, le=200),
-                       who: Principal = Depends(auth.principal)) -> list[dict]:
+                       limit: int = Query(20, gt=0, le=200)) -> list[dict]:
     sql = ("SELECT f.id, f.template, e.asset_code, f.start_ts, f.end_ts,"
            " f.status, f.is_reference FROM event_frame f"
            " JOIN element e ON e.id = f.element_id")
@@ -315,10 +270,6 @@ async def event_frames(asset_code: str | None = None,
     if asset_code:
         conditions.append("e.asset_code = %s")
         params.append(asset_code)
-    if who.role == "station":
-        # Filtered in the query, so LIMIT counts frames the principal may see.
-        conditions.append("e.context->>'station' = %s")
-        params.append(who.station)
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
     sql += " ORDER BY f.start_ts DESC LIMIT %s"
@@ -346,26 +297,23 @@ async def event_frames(asset_code: str | None = None,
 # -- tag health -----------------------------------------------------------------
 
 @app.get("/api/health/tags")
-async def tag_health(who: Principal = Depends(auth.principal)) -> list[dict]:
+async def tag_health() -> list[dict]:
     rows = await fetch(
         "SELECT tag_name, worst_state, source_quality, source_class,"
         " computed_quality, computed_class, last_source_ts, detail"
         " FROM tag_health_decoded ORDER BY tag_name")
-    stations = await auth.tag_stations([r[0] for r in rows])
     return [{"tag": r[0], "state": r[1], "source_quality": r[2],
              "source_class": r[3], "computed_quality": r[4],
              "computed_class": r[5],
              "last_source_ts": r[6].isoformat() if r[6] else None,
-             "detail": r[7]} for r in rows
-            if who.may_see_station(stations.get(r[0]))]
+             "detail": r[7]} for r in rows]
 
 
 # -- replay ----------------------------------------------------------------------
 
 @app.get("/api/replay")
 async def replay(start: str, end: str,
-                 tags: str = Query(..., description="comma-separated tag names"),
-                 who: Principal = Depends(auth.principal)) -> dict:
+                 tags: str = Query(..., description="comma-separated tag names")) -> dict:
     """Everything needed to replay a window: samples with quality, and the
     events that were emitted during it.
 
@@ -378,11 +326,10 @@ async def replay(start: str, end: str,
     except ValueError as exc:
         raise HTTPException(400, f"bad timestamp: {exc}") from exc
     names = [t.strip() for t in tags.split(",") if t.strip()]
-    stations = await auth.tag_stations(names)
+    known = await _known_tags(names)
     for name in names:
-        if name not in stations:
+        if name not in known:
             raise HTTPException(404, f"no such tag: {name}")
-        auth.refuse_station(who, stations[name], f"tag {name}")
     rows = await fetch(
         "SELECT t.name, s.source_ts, s.server_ts, s.value, s.quality,"
         " quality_class(s.quality) FROM sample s JOIN tag t ON t.id = s.tag_id"

@@ -6,34 +6,21 @@ browser. FastAPI is the only web framework in this project.
 
 ```bash
 make api       # uvicorn on 127.0.0.1:8000
-make token     # a read-only token (role corporate), shown once
 ```
 
-## Every route is authenticated and authorised (§509)
+## No access control
 
-`api/auth.py`. A bearer token is resolved by `ops.access.authenticate` against
-the SHA-256 hashes in `principal`; what each route needs is one table,
-`ROUTE_PERMISSIONS`, and a route that is not in it is refused — a new endpoint
-nobody thought about fails closed. A test checks the table covers every route.
-
-The **station** role is scoped to its station on every route that returns
-station data: a tag belongs to the station of the element it is mapped to, and
-a tag mapped to none is refused to a station principal rather than assumed
-visible. Lists are filtered; single items are refused with 403. `/api/status`
-reports the collectors, which serve every station, and is not scoped.
-
-The WebSocket takes the token as its second offered subprotocol
-(`["crpms.bearer", <token>]`), because a browser cannot set a header on a
-WebSocket and a token in a URL ends up in logs and history. Events about a tag
-are sent only to principals who may see that tag's station.
+There is no sign-in. Token access and role-based access (§509) — a bearer token
+on every route, a permission table, a station scope — were removed from the API
+and the UI by decision on 24 Sep 2026, with `api/auth.py` and `api/test_auth.py`
+and FAT test T-18. Anyone who can reach the API reads everything it serves. It
+listens on 127.0.0.1 by default; do not expose it beyond the station laptop
+without putting access control back in front of it. The access library
+(`ops/access.py`, the `principal` table) is still there, used by nothing in the
+API; the history of how it was enforced is in `fat/records/`.
 
 CORS allows only the UI's origins (`CRPMS_UI_ORIGINS`) and GET. The generated
 schema and docs pages are off unless `CRPMS_API_DOCS=1`.
-
-Until 23 September none of this existed: the access library was written and
-tested, and nothing called it. `api/test_auth.py` now tests the API itself —
-against a server it starts, or with `CRPMS_API_URL` set, against the one that
-is running (which is how T-18 uses it).
 
 ## One rule for every value
 

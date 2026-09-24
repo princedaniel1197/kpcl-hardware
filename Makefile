@@ -64,7 +64,6 @@ help:
 	@echo "  collector   run the acquisition collector       (Stage 3)"
 	@echo "  engine      run KPIs, quality, event frames, alerts, capacity"
 	@echo "  api         run the FastAPI service             (Stage 12)"
-	@echo "  token       create a read-only API token for the UI (§509)"
 	@echo "  ui          run the React visualisation         (Stage 12)"
 	@echo "  test        run the test suite"
 	@echo ""
@@ -206,11 +205,6 @@ engine:
 
 api:
 	$(VENV)/bin/uvicorn api.main:app --host $${API_HOST:-127.0.0.1} --port $${API_PORT:-8000} --reload
-
-# Every API call needs a token (§509). This makes one for the visualisation,
-# read-only, and prints it once.
-token:
-	@$(VPY) -m ops.access create $${NAME:-viewer.$$USER} $${ROLE:-corporate}
 
 ui:
 	@test -d ui/node_modules || { echo "installing ui dependencies ..."; cd ui && npm install; }

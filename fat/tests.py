@@ -68,16 +68,11 @@ def _query(conn, sql, params=()):
         return cur.fetchall()
 
 
-# Bearer token for the API (§509). The runner creates a principal for the run,
-# puts its token here, and revokes it afterwards.
-API_TOKEN: str | None = None
 API_URL = os.environ.get("CRPMS_API_URL", "http://127.0.0.1:8000")
 
 
-def _http_json(url: str, timeout: float = 5.0, token: str | None = None):
+def _http_json(url: str, timeout: float = 5.0):
     request = urllib.request.Request(url)
-    if token:
-        request.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(request, timeout=timeout) as r:
         return json.loads(r.read())
 
@@ -233,7 +228,7 @@ def dashboard_refresh(conn) -> Result:
     for _ in range(10):
         began = time.monotonic()
         try:
-            _http_json(f"{API_URL}/api/kpis", token=API_TOKEN)
+            _http_json(f"{API_URL}/api/kpis")
             timings.append(time.monotonic() - began)
         except Exception as exc:
             return Result(False, f"API unreachable: {exc}")
@@ -777,25 +772,8 @@ def _start_collector() -> None:
 
 
 # ---------------------------------------------------------------------------
-# §509, §503, §433 — run from the automated suite, against the live system
+# §503, §433 — run from the automated suite, against the live system
 # ---------------------------------------------------------------------------
-
-def role_based_access(conn) -> Result:
-    """The API itself, not the access library: every route with no token, an
-    unknown token, an admin token, a station token on its own station and on
-    another, and the WebSocket -- against the API that is running now."""
-    ok, tail = _pytest("api/test_auth.py", env={"CRPMS_API_URL": API_URL})
-    lib_ok, lib_tail = _pytest("ops/test_ops.py", "-k", "role or token or station")
-    return Result(ok and lib_ok,
-                  f"live API: {tail[0] if tail else 'no result'}",
-                  evidence=[f"api/test_auth.py against {API_URL}: "
-                            f"{tail[0] if tail else '-'}",
-                            f"ops/test_ops.py (roles, tokens, scope): "
-                            f"{lib_tail[0] if lib_tail else '-'}",
-                            "no token -> 401 on every route; station token on "
-                            "another station -> 403; unmapped data refused to a "
-                            "station principal; undeclared route fails closed"])
-
 
 def machine_readable_export(conn) -> Result:
     ok, tail = _pytest("ops/test_ops.py", "-k", "export")

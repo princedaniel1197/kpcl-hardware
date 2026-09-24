@@ -2,9 +2,8 @@
 
 import { Link } from '../lib/router'
 import { useData } from '../lib/data'
-import { getToken } from '../api'
 import { num } from '../lib/format'
-import { Chip, Empty, Folio, Ledger, Note, PageHeader, PrintBar, ProvenanceChip, Section } from '../components/ui'
+import { Empty, Folio, Ledger, Note, PageHeader, PrintBar, ProvenanceChip, Section } from '../components/ui'
 
 const SOURCES = [
   { name: 'DCS simulator', what: 'An OPC UA server standing in for a 210 MW unit\'s DCS, with a scripted cold start-up. Not a real BHEL, Yokogawa, ABB or Andritz system.',
@@ -59,21 +58,12 @@ export function DataSources() {
 }
 
 export function Settings() {
-  const d = useData()
-  const who = d.who
   return (
     <>
-      <PageHeader title="Settings" subtitle="Who you are signed in as, what that allows, and how this screen reads the system. There is nothing here to configure the plant with: CRPMS is read-only." />
-      <Section title="Principal">
-        <Ledger>
-          <tbody>
-            <tr><td className="text-[var(--muted)] w-[220px]">Signed in as</td><td className="font-semibold">{who.username}</td></tr>
-            <tr><td className="text-[var(--muted)]">Role</td><td>{who.role}{who.station ? ` · station ${who.station}` : ''}</td></tr>
-            <tr><td className="text-[var(--muted)]">Permissions</td><td>{who.permissions.map((p) => <span key={p} className="mr-1.5"><Chip tone="muted">{p}</Chip></span>)}</td></tr>
-            <tr><td className="text-[var(--muted)]">Token</td><td className="text-[12.5px]">Held in this browser's local storage until you sign out or the API refuses it. It is sent as a bearer header, and on the live stream as a subprotocol; it never appears in a URL. {getToken() ? '' : 'None held.'}</td></tr>
-          </tbody>
-        </Ledger>
-        <button className="btn mt-3 no-print" type="button" onClick={d.signOut}>Sign out</button>
+      <PageHeader title="Settings" subtitle="How this screen reads the system. There is nothing here to configure the plant with: CRPMS is read-only." />
+      <Section title="Access">
+        <Note tone="warning">There is no sign-in and no role-based access. Token access (§509) was removed from the API
+          and this interface by decision on 24 Sep 2026: anyone who can reach the API reads everything it serves.</Note>
       </Section>
       <Section title="How this screen reads the system">
         <Ledger>

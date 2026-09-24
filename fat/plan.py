@@ -186,16 +186,6 @@ PLAN: list[Test] = [
               "ROW COUNT: the first version of this procedure reported success "
               "while losing 12% of the archive."),
 
-    Test("T-18", "§509", "Role-based access",
-         "The running API, six roles, permissions as data",
-         "api/test_auth.py against the live API, plus the role and token tests",
-         "No token 401 on every route; another station 403; unmapped data "
-         "refused to a station; undeclared route refused; tokens stored hashed",
-         AUTOMATED, T.role_based_access,
-         fails_if="any route loses its principal dependency, the station scope "
-                  "is not applied, or a route is added without a declared "
-                  "permission"),
-
     Test("T-19", "§503", "Machine-readable export",
          "A populated archive",
          "ops.export over a window, then inspect the archive produced",
@@ -213,4 +203,15 @@ PLAN: list[Test] = [
          fails_if="a configuration change is made without an audit row, an "
                   "audit row lacks its old value, or audit_log accepts an "
                   "UPDATE or DELETE"),
+]
+
+
+# Tests taken out of the plan, and why. Kept here so the ITP and the report say
+# a clause is no longer tested, rather than the clause quietly disappearing.
+WITHDRAWN: list[tuple[str, str, str, str]] = [
+    ("T-18", "§509", "Role-based access",
+     "Withdrawn 24 Sep 2026. Token sign-in and role-based access were removed "
+     "from the API and the UI by decision, with api/auth.py and "
+     "api/test_auth.py. §509 is not demonstrated: anyone who can reach the "
+     "API reads everything it serves."),
 ]

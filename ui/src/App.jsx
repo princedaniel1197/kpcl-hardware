@@ -4,16 +4,17 @@
 // quality, its source timestamp and its provenance, and a value that is not
 // Good is never shown as a number it does not have.
 //
-// This file holds the sign-in, the routes, and the DataProvider: the
+// This file holds the routes and the DataProvider: the
 // dashboard's one poll (§528, 2-3 s) and the collector's live event stream.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AuthError, connectEvents, getAllEvents, getAssets, getAttributes, getKpis,
-         getLatest, getStatus, getTagHealth, getTags, getToken, getWhoami, setToken } from './api'
+import { connectEvents, getAllEvents, getAssets, getAttributes, getKpis,
+         getLatest, getStatus, getTagHealth, getTags } from './api'
 import { DataContext, useData } from './lib/data'
 import { RouterProvider, match, useRouter } from './lib/router'
 import { klassOf } from './lib/quality'
-import Shell, { APP_NAME } from './components/Shell'
+import Shell from './components/Shell'
+import { Folio, Note, PageHeader } from './components/ui'
 import Overview from './pages/Overview'
 import { AssetTree, AssetDetail } from './pages/Assets'
 import { TagRegister, TagDetail } from './pages/Tags'
@@ -22,72 +23,15 @@ import { EventFrames, EventDetail, KpiRegister, KpiDetail } from './pages/Events
 import { CollectorHealth, Gaps, SourceHealth } from './pages/Health'
 import { DataSources, Settings, NotFound } from './pages/Other'
 
-// Every API call is authenticated (§509). Without a valid token there is
-// nothing to show, so the first thing on screen is the sign-in.
+// There is no sign-in: token access (§509) was removed from the API and this
+// interface by decision on 24 Sep 2026. The dashboard opens straight away.
 export default function App() {
-  const [who, setWho] = useState(null)
-  const [checked, setChecked] = useState(false)
-  const [unreachable, setUnreachable] = useState(false)
-
-  const check = useCallback(async () => {
-    if (!getToken()) { setWho(null); setChecked(true); return }
-    try {
-      setWho(await getWhoami())
-      setUnreachable(false)
-    } catch (e) {
-      // A refused token is cleared; an API that did not answer is said so,
-      // rather than dropping the viewer back at the sign-in without a word.
-      if (e instanceof AuthError) { setToken(null); setUnreachable(false) } else setUnreachable(true)
-      setWho(null)
-    }
-    setChecked(true)
-  }, [])
-
-  useEffect(() => { check() }, [check])
-  const signOut = useCallback(() => { setToken(null); setWho(null) }, [])
-
-  if (!checked) return <div className="p-6 text-[13px] text-[var(--muted)]">Loading ledger…</div>
-  if (!who) return <SignIn unreachable={unreachable} onToken={(t) => { setToken(t); check() }} />
   return (
     <RouterProvider>
-      <DataProvider who={who} onSignOut={signOut}>
+      <DataProvider>
         <Shell><Routes /></Shell>
       </DataProvider>
     </RouterProvider>
-  )
-}
-
-function SignIn({ onToken, unreachable }) {
-  const [value, setValue] = useState('')
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <form className="panel w-full max-w-[440px]"
-            onSubmit={(e) => { e.preventDefault(); if (value.trim()) onToken(value.trim()) }}>
-        <div className="px-5 pt-5 pb-3 rule-master">
-          <div className="display text-[21px] leading-none">{APP_NAME}</div>
-          <div className="text-[10.5px] uppercase tracking-[0.13em] text-[var(--muted)] mt-1.5">
-            Karnataka Power Corporation
-          </div>
-        </div>
-        <div className="px-5 py-4">
-          <h1 className="text-[22px] leading-tight">Sign in</h1>
-          <p className="text-[12.5px] text-[var(--muted)] mt-1">
-            Paste an access token. Tokens are issued with <code>make token</code> (or
-            <code> python -m ops.access create</code>) and shown once; the server keeps only their SHA-256.
-          </p>
-          <input type="password" autoFocus value={value} onChange={(e) => setValue(e.target.value)}
-                 aria-label="Access token" className="input w-full mt-3" placeholder="Access token" />
-          <button type="submit" className="btn btn-primary mt-3">Sign in</button>
-          {unreachable && (
-            <p className="reason reason-danger mt-3" role="alert">
-              The CRPMS API did not answer at this address. It runs on the station laptop with the collector and
-              the archive (<code>make start</code>); a copy of this interface hosted elsewhere has no data behind it.
-            </p>
-          )}
-        </div>
-        <div className="folio px-5 pb-4 mt-0">CRPMS · monitoring overlay, read-only</div>
-      </form>
-    </div>
   )
 }
 
@@ -104,7 +48,8 @@ const ROUTES = [
 
 function Routes() {
   const { path } = useRouter()
-  const { ready } = useData()
+  const { ready, unreachable } = useData()
+  if (!ready && unreachable) return <Unreachable />
   // Until the first read lands, a detail page would say its record does not
   // exist; say what is true instead.
   if (!ready) return <div className="py-10 text-[13px] text-[var(--muted)]">Loading ledger…</div>
@@ -115,9 +60,26 @@ function Routes() {
   return <NotFound />
 }
 
+// The API did not answer: say so, rather than wait on an empty ledger. This is
+// what a copy of the interface hosted away from the station laptop shows.
+function Unreachable() {
+  return (
+    <>
+      <PageHeader title="The CRPMS API is not reachable"
+        subtitle="This screen reads the API, which runs on the station laptop with the collector, the engine and the archive." />
+      <Note tone="danger">
+        No answer from <code>/api</code> at this address. On the station laptop, <code>make start</code> runs the
+        whole system and serves this interface with its data. A copy hosted anywhere else has no data behind it.
+        This page retries every few seconds.
+      </Note>
+      <Folio />
+    </>
+  )
+}
+
 const STREAM_TAGS_REFRESH_MS = 30000
 
-function DataProvider({ who, onSignOut, children }) {
+function DataProvider({ children }) {
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState([])
   const [kpis, setKpis] = useState([])
@@ -132,13 +94,13 @@ function DataProvider({ who, onSignOut, children }) {
   const [now, setNow] = useState(Date.now())
   const [configReady, setConfigReady] = useState(false)
   const [pollReady, setPollReady] = useState(false)
+  const [unreachable, setUnreachable] = useState(false)
   const lastStreamed = useRef({})
 
-  const guard = useCallback((e) => {
-    // A revoked or expired token signs the viewer out; the API being briefly
-    // away is not worth a red screen.
-    if (e instanceof AuthError) onSignOut()
-  }, [onSignOut])
+  // The API being briefly away once the ledger has loaded is not worth a red
+  // screen; the stream chip and the values' own times show it. Before the
+  // first read lands, it is all there is to say.
+  const guard = useCallback(() => setUnreachable(true), [])
 
   // Live values: every acquired value the collector emits.
   const onEvent = useCallback((e) => {
@@ -159,7 +121,8 @@ function DataProvider({ who, onSignOut, children }) {
       try {
         const [s, h, k] = await Promise.all([getStatus(), getTagHealth(), getKpis()])
         setStatus(s); setHealth(h); setKpis(k); setNow(Date.now()); setPollReady(true)
-      } catch (e) { guard(e) }
+        setUnreachable(false)
+      } catch { guard() }
     }
     poll()
     const t = setInterval(poll, 2500)          // §528: 2-3 s dashboard refresh
@@ -179,7 +142,7 @@ function DataProvider({ who, onSignOut, children }) {
           try { attrs[x.asset_code] = await getAttributes(x.asset_code) } catch { attrs[x.asset_code] = [] }
         }))
         if (live) setAttributes(attrs)
-      } catch (e) { guard(e) }
+      } catch { guard() }
     }
     load()
     const t = setInterval(load, 30000)
@@ -218,10 +181,10 @@ function DataProvider({ who, onSignOut, children }) {
     const tagByName = Object.fromEntries(tags.map((t) => [t.name, t]))
     const healthByTag = Object.fromEntries(health.map((h) => [h.tag, h]))
     const stations = [...new Set(assets.map((a) => a.station).filter(Boolean))].sort()
-    return { who, signOut: onSignOut, status, health, healthByTag, kpis, frames, tags, tagByName,
+    return { unreachable, status, health, healthByTag, kpis, frames, tags, tagByName,
              assets, attributes, values, events, streamCount, link, stations, now,
              ready: configReady && pollReady }
-  }, [who, onSignOut, status, health, kpis, frames, tags, assets, attributes, values, events,
+  }, [unreachable, status, health, kpis, frames, tags, assets, attributes, values, events,
       streamCount, link, now, configReady, pollReady])
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>
