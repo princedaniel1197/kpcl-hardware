@@ -244,3 +244,5 @@ caller retries rather than the firmware queueing starts it may no longer want.
 | Current zero | with the relays open | also, with no relays, only while the supply reads below the ADC floor (12 V off); otherwise refused and a warning printed |
 | ACS712 reading | `analogReadMilliVolts()` | the same plus a bench offset measured against a multimeter (−225 mV); `ACS712_SIGN` for a reversed sensor |
 | Serial | probe addresses | addresses with each probe's reading and role; I²C scan; ADC calibration source; a status line every 10 s |
+| A probe coming back (replug, boot) | first reading published | invalid until two successive conversions agree within 1.0 °C — a replugged probe read 99.3 °C, once, with a valid CRC |
+| Current | 200 samples over 12 ms, zero before WiFi | 400 samples × last 4 scans (1 s), zero after WiFi, WiFi power saving off; `ACS712_SIGN` −1 on this bench |

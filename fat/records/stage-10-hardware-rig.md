@@ -282,8 +282,45 @@ one-second mean fell below −0.10 A within a scan of the fans starting, so the
 ACS712 is reversed, which is what the negative check is for. `ACS712_SIGN` is
 now −1. Vibration stayed at 0.4 mm/s with the fans on.
 
-Next: re-zero with 12 V off and the sign corrected; measure the fan current
-against a meter in series; find the drift; then unplug the hub probe.
+**12 V with the sign corrected, 15:19 UTC.** Zero taken with 12 V off
+(2,439.6 mV; it was 2,515 mV at the previous boot). Once 12 V was connected:
+current Good and positive, 1.16 A while the fans spun up, then 0.87–0.93 A
+steady (mean 0.878 A over 60 s); supply 12.04–12.12 V (the user's meter: ~12 V);
+status 0x0FF. **0.88 A is about twice the 0.46 A the fans' ratings add up to**,
+and the ADC's error around 2.5 V can inflate a difference from the zero. The
+current's scale is not claimed until it has been compared with a meter in
+series. (At 15:23 the reading fell to about 0.30 A, with a spike to 1.26 A,
+while the test below was being set up; not yet explained.) Accepted for now as
+documented limits, by the user: the zero drift, and the unverified scale.
+
+### Acceptance test, run 1 — 24 September, 15:24 UTC
+
+The hub probe unplugged at the bench, then plugged back in.
+
+| Time (UTC) | RIG_HUB_TEMP in `sample` | MotorThermalRise |
+|---|---|---|
+| 15:23:33.9 | 29.3 °C, Good (last sample before; archived on change) | 2.70 °C Good (15:23:57) |
+| 15:24:02.8 | **NULL, 2156593152 (BadDeviceFailure)**, the same poll the bridge logged it | **Bad, NULL** from 15:24:07: "input HubTemperature (RIG_HUB_TEMP) has no value, BadDeviceFailure", four calculations |
+| 15:24:33.6 | NULL, BadDeviceFailure | Bad |
+| 15:24:38.7 | **99.3 °C, Good** — wrong | — |
+| 15:24:39.8 | 29.3 °C, Good | 2.70 °C Good (15:24:48) |
+
+During the fault RIG_AMBIENT_TEMP, RIG_CURRENT, RIG_VIBRATION and RIG_SUPPLY_V
+stayed Good; the dashboard's Health tab showed RIG_HUB_TEMP bad with its
+StatusCode. No Bad hub sample carries a value.
+
+**The unplug passed; the replug did not.** The first reading after the probe
+came back was 99.3 °C with a valid CRC — a probe powering up on the bus
+mid-sequence — and it was published and archived as Good. That is a Good
+value that was never a measurement. The KPI happened not to read it (it
+calculates every 10 s); a rule or alert might have. The firmware now trusts a
+returning probe (and every probe at boot) only once two successive conversions
+agree within 1.0 °C; until then the point is invalid. **The 99.3 °C sample is
+left in the archive**, where it is the evidence for this defect; it is not
+deleted or edited.
+
+Stage 10 is **not passed** until the test is re-run with that fix and the
+replug publishes nothing unconfirmed.
 
 ## Signature
 

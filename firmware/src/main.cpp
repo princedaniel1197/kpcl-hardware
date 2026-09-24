@@ -409,6 +409,47 @@ static int16_t readProbe(const uint8_t *address, bool &ok) {
   return (int16_t)lroundf(c * 10.0f);
 }
 
+// A probe that has just come back -- plugged in, or at boot -- is not trusted
+// on its first reading. Found on the bench, 24 Sep 2026: the hub probe, plugged
+// back in after the Stage 10 unplug test, returned 99.3 degC with a valid CRC,
+// then 29.3 degC a second later; the 99.3 was published and archived as Good.
+// A reading that has not been confirmed is reported invalid, and a probe is
+// trusted again only when two successive conversions agree within
+// PROBE_CONFIRM_X10 (tenths of a degree) -- one second apart, far more than any
+// real change of a fan hub or the air.
+static const int16_t PROBE_CONFIRM_X10 = 10;
+
+struct ProbeState {
+  bool settled = false;        // last reading was confirmed
+  bool haveCandidate = false;  // an unconfirmed reading is waiting
+  int16_t candidate = 0;
+};
+static ProbeState hubState, ambientState;
+
+static int16_t readProbeConfirmed(const uint8_t *address, ProbeState &st, bool &ok) {
+  bool readOk = false;
+  int16_t v = readProbe(address, readOk);
+  ok = false;
+  if (!readOk) {
+    st.settled = false;
+    st.haveCandidate = false;
+    return INVALID_S16;
+  }
+  if (st.settled) {
+    ok = true;
+    return v;
+  }
+  if (st.haveCandidate && abs(v - st.candidate) <= PROBE_CONFIRM_X10) {
+    st.settled = true;
+    st.haveCandidate = false;
+    ok = true;
+    return v;
+  }
+  st.candidate = v;            // first reading back, or it disagreed: wait
+  st.haveCandidate = true;
+  return INVALID_S16;
+}
+
 static void listProbes() {
   DeviceAddress found;
   oneWire.reset_search();
@@ -727,8 +768,10 @@ void loop() {
     lastTempRequest = now;
     if (tempConversionPending) {
       bool hubOk = false, ambientOk = false;
-      inputRegisters[IREG_TEMP_HUB_X10] = asRegister(readProbe(HUB_PROBE_ADDRESS, hubOk));
-      inputRegisters[IREG_TEMP_AMB_X10] = asRegister(readProbe(AMBIENT_PROBE_ADDRESS, ambientOk));
+      inputRegisters[IREG_TEMP_HUB_X10] =
+          asRegister(readProbeConfirmed(HUB_PROBE_ADDRESS, hubState, hubOk));
+      inputRegisters[IREG_TEMP_AMB_X10] =
+          asRegister(readProbeConfirmed(AMBIENT_PROBE_ADDRESS, ambientState, ambientOk));
       setStatus(ST_HUB_OK, hubOk);
       setStatus(ST_AMBIENT_OK, ambientOk);
     }
