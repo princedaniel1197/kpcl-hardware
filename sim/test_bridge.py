@@ -21,6 +21,7 @@ BAD_DEVICE = int(ua.StatusCodes.BadDeviceFailure)
 BAD_CONFIG = int(ua.StatusCodes.BadConfigurationError)
 BAD_RANGE = int(ua.StatusCodes.BadOutOfRange)
 BAD_NOT_CONNECTED = int(ua.StatusCodes.BadNotConnected)
+UNCERTAIN_CALIBRATION = int(ua.StatusCodes.UncertainSensorCalibration)
 
 
 def registers(hub=425, ambient=240, status=ALL_OK, current=460, vib=234,
@@ -63,7 +64,8 @@ def test_current_is_signed_so_a_wrong_zero_shows():
     a wrong zero, and an unsigned register (or an RMS) would have hidden it."""
     words = registers(current=-37)
     value, quality, _ = bridge.decode(point("RIG_CURRENT"), words, ALL_OK)
-    assert value == pytest.approx(-0.037) and quality == GOOD
+    # Uncertain rather than Good since 24 Sep 2026 (uncalibrated), but read.
+    assert value == pytest.approx(-0.037) and quality == UNCERTAIN_CALIBRATION
 
 
 # --- the failure mapping, which is the point ---------------------------------
@@ -92,7 +94,7 @@ def test_unconfigured_probe_addresses_say_so():
     for tag in ("RIG_HUB_TEMP", "RIG_AMBIENT_TEMP"):
         value, quality, reason = bridge.decode(point(tag), words, status)
         assert value is None and quality == BAD_CONFIG and "ROM" in reason
-    assert bridge.decode(point("RIG_CURRENT"), words, status)[1] == GOOD
+    assert bridge.decode(point("RIG_CURRENT"), words, status)[1] == UNCERTAIN_CALIBRATION
 
 
 def test_a_supply_beyond_the_adc_is_out_of_range_not_a_device_failure():
@@ -100,6 +102,36 @@ def test_a_supply_beyond_the_adc_is_out_of_range_not_a_device_failure():
     words = registers(supply=bridge.INVALID_U16, status=status)
     value, quality, _ = bridge.decode(point("RIG_SUPPLY_V"), words, status)
     assert value is None and quality == BAD_RANGE
+
+
+def test_the_uncalibrated_current_is_uncertain_with_its_value():
+    """RIG_CURRENT is read but not calibrated (24 Sep 2026): it keeps its value
+    and says so in its StatusCode, rather than passing as Good."""
+    value, quality, reason = bridge.decode(point("RIG_CURRENT"), registers(), ALL_OK)
+    assert value == pytest.approx(0.460)
+    assert quality == UNCERTAIN_CALIBRATION
+    assert (quality >> 30) & 3 == 1                      # Uncertain, not Good
+    assert "uncalibrated - bench demo only" in reason
+    # Every other rig point is still Good when read.
+    for p in bridge.POINTS:
+        if p.tag != "RIG_CURRENT":
+            assert p.uncalibrated is None
+            assert bridge.decode(p, registers(), ALL_OK)[1] == GOOD
+
+
+def test_an_uncalibrated_point_that_fails_is_still_bad():
+    status = ALL_OK & ~bridge.ST_ACS_OK
+    value, quality, _ = bridge.decode(point("RIG_CURRENT"), registers(), status)
+    assert value is None and quality == BAD_DEVICE
+
+
+def test_the_note_matches_the_tag_config():
+    import json
+    from pathlib import Path
+    tags = json.loads((Path(__file__).parent.parent / "config" / "unit1_tags.json")
+                      .read_text())["tags"]
+    note = next(t for t in tags if t["name"] == "RIG_CURRENT").get("quality_note")
+    assert note == point("RIG_CURRENT").uncalibrated
 
 
 def test_an_unzeroed_current_sensor_names_the_zero():
@@ -165,9 +197,11 @@ def test_a_failed_sensor_does_not_affect_the_others():
     status = ALL_OK & ~bridge.ST_HUB_OK
     words = registers(hub=bridge.TEMP_INVALID, status=status)
     assert bridge.decode(point("RIG_HUB_TEMP"), words, status)[1] == BAD_DEVICE
-    for tag in ("RIG_CURRENT", "RIG_VIBRATION", "RIG_AMBIENT_TEMP",
-                "RIG_SUPPLY_V"):
+    for tag in ("RIG_VIBRATION", "RIG_AMBIENT_TEMP", "RIG_SUPPLY_V"):
         assert bridge.decode(point(tag), words, status)[1] == GOOD
+    # Unaffected by the hub: as it always is, Uncertain (uncalibrated), with a value.
+    value, quality, _ = bridge.decode(point("RIG_CURRENT"), words, status)
+    assert value is not None and quality == UNCERTAIN_CALIBRATION
 
 
 def test_a_failed_sensor_publishes_no_value_at_all():
@@ -313,7 +347,7 @@ async def test_a_failed_probe_reaches_opc_ua_as_bad_with_no_value():
             assert bad.Value.Value is None
             # And only the hub.
             assert (await read("RIG_AMBIENT_TEMP")).StatusCode.value == GOOD
-            assert (await read("RIG_CURRENT")).StatusCode.value == GOOD
+            assert (await read("RIG_CURRENT")).StatusCode.value == UNCERTAIN_CALIBRATION
 
             # The bench as it stood on 24 Sep 2026: no switch, no relays.
             assert (await read("RIG_RUNNING")).StatusCode.value == GOOD
@@ -324,7 +358,7 @@ async def test_a_failed_probe_reaches_opc_ua_as_bad_with_no_value():
                 absent = await read(tag)
                 assert absent.StatusCode.value == BAD_NOT_CONNECTED
                 assert absent.Value.Value is None
-            assert (await read("RIG_CURRENT")).StatusCode.value == GOOD
+            assert (await read("RIG_CURRENT")).StatusCode.value == UNCERTAIN_CALIBRATION
         finally:
             b.close()
             await client.disconnect()

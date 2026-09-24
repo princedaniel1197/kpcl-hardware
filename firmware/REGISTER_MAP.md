@@ -177,6 +177,7 @@ turned an overheating motor — the anomaly worth seeing — into a failed senso
 | any other clear status bit | BadDeviceFailure | null |
 | status bit set but register holds the sentinel | BadDeviceFailure, logged as a firmware/bridge disagreement | null |
 | rig unreachable, or a Modbus exception | BadNoCommunication on every point | null |
+| **current read OK** (register 0), on this bench | **UncertainSensorCalibration** — uncalibrated, by decision (24 Sep 2026); never Good | the reading |
 
 ## Scan behaviour
 

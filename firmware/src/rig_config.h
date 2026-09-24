@@ -117,9 +117,13 @@ static const float ACS712_SIGN = -1.0f;
 // zero, and a constant offset cancels. What it does NOT correct is a gain
 // error, which would scale every current reading; one meter reading cannot
 // separate gain from offset. 2.5 V is also above the 2450 mV to which
-// Espressif characterises this ADC at 11 dB, which is the likely cause. The
-// current's scale is verified by comparing it with a meter in series with the
-// fans, and is not claimed until that has been done.
+// Espressif characterises this ADC at 11 dB.
+//
+// DECIDED 24 Sep 2026: the current is permanently unverified. A meter put the
+// fans at ~0.1-0.25 A while the rig read 0.12-0.88 A; the bench ground is poor
+// and the hardware stays as it is. The bridge publishes RIG_CURRENT as
+// UncertainSensorCalibration, "uncalibrated - bench demo only", and no KPI,
+// alert or event template may use it (engine/test_quality_note.py).
 static const float ACS712_ADC_OFFSET_MV = -225.0f;
 
 // Supply divider ratio, (R_top + R_bottom) / R_bottom. Measure the resistors

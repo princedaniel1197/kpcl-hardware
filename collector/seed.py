@@ -26,7 +26,7 @@ DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "unit1_tags.json"
 
 FIELDS = ("description", "engineering_unit", "range_low", "range_high",
           "source_system", "scan_rate_ms", "exc_dev", "comp_dev", "max_time_ms",
-          "source_path", "compress")
+          "source_path", "compress", "quality_note")
 
 
 def health_tags() -> list[dict]:

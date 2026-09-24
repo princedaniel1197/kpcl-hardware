@@ -36,3 +36,7 @@ fat/evidence/tmp/
 # Backups and exports are data, not source.
 backups/
 exports/
+
+# ops/services.sh: service logs and process ids
+/logs/
+/.run/

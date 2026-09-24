@@ -236,12 +236,12 @@ def evaluate_tag(conn: psycopg.Connection, tag_id: int, *,
     rules = load_rules(conn, tag_id).get(tag_id, {})
 
     with conn.cursor() as cur:
-        cur.execute("SELECT name, range_low, range_high FROM tag WHERE id = %s",
-                    (tag_id,))
+        cur.execute("SELECT name, range_low, range_high, quality_note FROM tag"
+                    " WHERE id = %s", (tag_id,))
         row = cur.fetchone()
         if row is None:
             raise ValueError(f"no such tag: {tag_id}")
-        tag_name, range_low, range_high = row
+        tag_name, range_low, range_high, quality_note = row
 
         cur.execute(
             "SELECT source_ts, value, quality FROM sample"
@@ -343,7 +343,10 @@ def evaluate_tag(conn: psycopg.Connection, tag_id: int, *,
         is_comm_failed=last_quality == int(ua.StatusCodes.BadNoCommunication),
         source_quality=last_quality,
         computed_quality=computed,
-        detail="; ".join(f"{f.rule_type}: {f.reason}" for f in by_rule.values())
+        # A standing note on the tag (e.g. "uncalibrated - bench demo only")
+        # comes first: it is true of every value, whatever the rules found.
+        detail="; ".join(([quality_note] if quality_note else [])
+                         + [f"{f.rule_type}: {f.reason}" for f in by_rule.values()])
         or None,
     )
     return flags, health

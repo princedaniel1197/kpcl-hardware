@@ -115,6 +115,15 @@ class _SubscriptionHandler:
     def datachange_notification(self, node, value, data) -> None:
         self.handle(node, data.monitored_item.Value)
 
+    def status_change_notification(self, status) -> None:
+        """The server says the subscription's status changed -- BadShutdown when
+        the source is stopping, BadTimeout when it gave up on us. Said plainly.
+        Without this method asyncua logged an ERROR naming the missing method on
+        every source shutdown. Reconnecting is the session's business, not this
+        handler's."""
+        code = getattr(status, "Status", status)
+        log.warning("subscription status from the server: %s", code)
+
     def _drop(self, counter: str, tag_name: str, why: str) -> None:
         setattr(self._counts, counter, getattr(self._counts, counter) + 1)
         self._counts.by_tag[tag_name] = self._counts.by_tag.get(tag_name, 0) + 1

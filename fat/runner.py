@@ -231,9 +231,9 @@ def render(env: dict, results: dict[str, Result], began, ended,
         "one laptop with one simulated unit and a bench rig. It says nothing "
         "about wide-area network behaviour, cross-site time synchronisation, "
         "per-station licensing, or OT security zoning. The bench rig passed its "
-        "probe-failure test on real hardware, but its current reading is not "
-        "yet a calibrated measurement, and its relays and run switch are not "
-        "fitted.",
+        "probe-failure test on real hardware, but its current reading is "
+        "uncalibrated -- published as Uncertain and used by no KPI or alert -- "
+        "and its relays and run switch are not fitted.",
         "",
         "Plant physics is limited to definitional ratios. Cylinder efficiency "
         "and condenser performance require published steam tables and are not "

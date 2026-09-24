@@ -24,7 +24,7 @@ is finished when its test has been run and its result recorded in
 | 7 KPI engine | **passed** | [record](fat/records/stage-07-kpi-engine.md) |
 | 8 Event frames | **passed** | [record](fat/records/stage-08-event-frames.md) |
 | 9 OMF emitter | **passed** | [record](fat/records/stage-09-omf.md) |
-| 10 The hardware rig | **passed** on the bench, 24 Sep; the current's scale is unverified | [record](fat/records/stage-10-hardware-rig.md) |
+| 10 The hardware rig | **passed** on the bench, 24 Sep; the rig's current reading is uncalibrated and published as Uncertain | [record](fat/records/stage-10-hardware-rig.md) |
 | 11 Redundancy | **passed** | [record](fat/records/stage-11-redundancy.md) |
 | 12 The visualisation | **built** — its criterion is a human judgement | [record](fat/records/stage-12-visualisation.md) |
 | 13 Remaining requirements | **passed** | [record](fat/records/stage-13-remaining-requirements.md) |
@@ -42,8 +42,10 @@ passed 15 of 15.
 the real rig, read over Modbus TCP, went Bad with no value in the archive, the
 motor thermal-rise KPI went Bad naming it, and the dashboard said why. The
 first run found a defect — a replugged probe published 99.3 °C as Good — which
-was fixed and the test re-run. The rig's current reading is not yet a
-measurement: its zero drifts and its scale is unverified.
+was fixed and the test re-run. The rig's current reading is **not a
+measurement** and never will be on this bench (a meter put the fans at
+0.1–0.25 A while it read 0.12–0.88 A): it is published Uncertain,
+"uncalibrated - bench demo only", and nothing computes from it.
 
 One thing is outstanding and needs a person, not more code:
 
@@ -58,6 +60,9 @@ make install         # .venv with the project
 make up              # TimescaleDB
 make migrate         # schema
 make seed-tags seed-assets seed-quality seed-kpis seed-alerts
+
+make start           # all of the below in the background, logs in logs/
+make stop            # ... and stopped cleanly
 
 make sim             # the OPC UA DCS simulator
 make collector       # acquisition

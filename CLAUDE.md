@@ -167,13 +167,16 @@ re-run on a clean tree and passed 15 of 15.
 | Stage | State |
 |---|---|
 | 0–9, 11, 13 | test run and passed; records in `fat/records/` |
-| 10 hardware rig | **passed on the bench, 24 Sep** (run 2, after run 1 found a Good 99.3 °C on the probe replug, now fixed). Limits: the current's scale is unverified and its zero drifts; relays and run switch not fitted |
+| 10 hardware rig | **passed on the bench, 24 Sep** (run 2, after run 1 found a Good 99.3 °C on the probe replug, now fixed). `RIG_CURRENT` is **permanently unverified** by decision: published Uncertain, "uncalibrated - bench demo only", used by no KPI or alert. Relays and run switch not fitted |
 | 12 visualisation | built and functionally verified; **its criterion is a human judgement** — a colleague who has not seen it must describe the outage unaided, and nobody has watched it |
 | 14 FAT | automated FAT **15 of 15** on a clean tree, 23 Sep 05:37 UTC (`fat/reports/FAT-20260923T053731Z.md`); every automated test states what would make it fail; hold and witness points await signature |
 
-Running the system now takes `make sim`, `make collector`, `make engine` (KPIs,
-quality rules and event frames — nothing computed them continuously before 23
-Sep), `make api` and `make ui`; the UI needs a token from `make token`.
+`make start` runs the whole system in the background — database, simulator
+bridging the bench rig (`RIG_MODBUS_HOST`, default 192.168.1.89), collector,
+engine, API and UI, logs in `logs/` — and `make stop` stops it cleanly
+(`make status` in between). The pieces also run one at a time: `make sim`,
+`make collector`, `make engine`, `make api`, `make ui`. The UI needs a token
+from `make token`.
 
 Outstanding for a person:
 
@@ -181,14 +184,12 @@ Outstanding for a person:
    they say. Steps in `fat/records/stage-12-visualisation.md`.
 2. Sign the hold and witness points in the FAT report.
 
-Open on the rig (not blocking a stage): the ACS712 zero drift and unverified
-current scale — check whether the drift tracks the USB 5 V rail and whether a
-divider on OUT into the ADC's characterised range helps; the in-series meter
-check; mount the MPU-6500 on a fan frame; fit the relays and run switch.
-The rig's ground is bad (12 V negative 136 mV above the ESP32's ground with
-the fans running): next session, move the 12 V negative and the fan returns to
-a solid off-breadboard joint, add a VCC/2 reference (two 4.7 kΩ across the
-ACS712), and recalibrate the current against OUT minus that reference.
-`RIG_CURRENT` is not a measurement until then.
+On the rig, by decision (24 Sep 2026): no rewiring. `RIG_CURRENT` stays
+uncalibrated for good — the bridge publishes it UncertainSensorCalibration, the
+tag's `quality_note` reads "uncalibrated - bench demo only", and
+`engine/test_quality_note.py` fails if a KPI, alert or event template ever uses
+it. Do not describe it as a current measurement. Still possible later, none
+blocking: mount the MPU-6500 on a fan frame; fit the relays and run switch.
+Until the relays are fitted: USB first, then 12 V.
 
 Update this section as those close.

@@ -208,11 +208,13 @@ function Dashboard({ who, onSignOut }) {
                 {health.map((h) => (
                   <tr key={h.tag} style={{ borderTop: `1px solid ${isa.line}` }}>
                     <td style={{ ...td, fontFamily: mono }}>{h.tag}</td>
-                    <td style={{ ...td, color: h.state === 'ok' ? isa.textDim : isa.bad }}>
+                    <td style={{ ...td, color: h.state === 'ok' ? isa.textDim
+                                               : h.state === 'uncertain' ? isa.uncertain
+                                               : isa.bad }}>
                       {h.state}
                     </td>
                     <td style={{ ...td, color: qualityColour(h.source_class) }}>
-                      {h.source_class} ({h.source_quality})
+                      {h.source_quality === null ? '—' : `${h.source_class} (${h.source_quality})`}
                     </td>
                     <td style={{ ...td, color: qualityColour(h.computed_class) }}>
                       {h.computed_class}

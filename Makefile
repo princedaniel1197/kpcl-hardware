@@ -39,7 +39,7 @@ POSTGRES_DB   ?= crpms
 POSTGRES_PORT ?= 5432
 DB_CONTAINER  := crpms-timescaledb
 
-.PHONY: help doctor env up down logs psql wait-db clean install venv sim collector engine api ui test \
+.PHONY: help doctor env up down start stop status logs psql wait-db clean install venv sim collector engine api ui test \
         token firmware itp intrusion-demo deadband-evidence \
         migrate migrate-status loadtest seed-tags seed-assets seed-quality quality-demo seed-kpis kpi-demo events-demo omf-receiver omf-demo rig-stub redundancy-demo outage-test compression-report \
         fat backup restore backup-install backup-uninstall capacity alerts alerts-watch seed-alerts export access \
@@ -53,6 +53,9 @@ help:
 	@echo "  install     create $(VENV) and install the project with dev extras"
 	@echo "  up          start TimescaleDB and wait until it accepts connections"
 	@echo "  down        stop TimescaleDB (the named volume is kept)"
+	@echo "  start       everything in the background: DB, sim + rig bridge, collector, engine, API, UI"
+	@echo "  stop        stop all of it cleanly (DB left up while the SLDC recorder runs)"
+	@echo "  status      which background services are running"
 	@echo "  psql        open a psql shell inside the running container"
 	@echo "  logs        follow TimescaleDB logs"
 	@echo "  clean       stop and DESTROY the archive volume (needs CONFIRM=yes)"
@@ -151,6 +154,17 @@ wait-db:
 
 down:
 	$(COMPOSE) down
+
+# The whole demonstrator in the background; logs in logs/, pids in .run/.
+# RIG_MODBUS_HOST=<ip> if the bench rig's DHCP address has changed.
+start:
+	@ops/services.sh start
+
+stop:
+	@ops/services.sh stop
+
+status:
+	@ops/services.sh status
 
 logs:
 	$(COMPOSE) logs -f timescaledb

@@ -76,6 +76,7 @@ BAD_CONFIGURATION = int(ua.StatusCodes.BadConfigurationError)
 BAD_OUT_OF_RANGE = int(ua.StatusCodes.BadOutOfRange)
 BAD_NO_COMMUNICATION = int(ua.StatusCodes.BadNoCommunication)
 BAD_NOT_CONNECTED = int(ua.StatusCodes.BadNotConnected)
+UNCERTAIN_SENSOR_CALIBRATION = int(ua.StatusCodes.UncertainSensorCalibration)
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,10 @@ class Point:
     needs_probe_config: bool = False
     # What a clear status bit means, in words, for the log.
     clear_reason: str = "the sensor was not read successfully this scan"
+    # A reading the rig produces but nobody has calibrated: published with its
+    # value, as UncertainSensorCalibration instead of Good. The same words are
+    # the tag's quality_note in config/unit1_tags.json, which the dashboard shows.
+    uncalibrated: str | None = None
 
     @property
     def invalid(self) -> int:
@@ -106,7 +111,10 @@ POINTS: tuple[Point, ...] = (
     # The ACS712-05B spans -5 A to +5 A; that is the instrument's range.
     Point("RIG_CURRENT", IREG_CURRENT_MA, 0.001, "A",
           "Bench rig total load current (ACS712 5 A)", ST_ACS_OK, signed=True,
-          eu_low=-5.0, eu_high=5.0),
+          eu_low=-5.0, eu_high=5.0,
+          # 24 Sep 2026: read 0.12-0.88 A for fans a meter put at 0.1-0.25 A
+          # (uncalibrated ADC, poor bench ground); left as it is, by decision.
+          uncalibrated="uncalibrated - bench demo only"),
     Point("RIG_VIBRATION", IREG_VIB_MMS_X100, 0.01, "mm/s",
           "Bench rig fan vibration (MPU-6050 or MPU-6500, approximate velocity)",
           ST_MPU_OK, eu_low=0.0, eu_high=50.0),
@@ -166,6 +174,9 @@ def decode(point: Point, registers: list[int], status: int
             f"bit is set — firmware and bridge disagree")
     if point.signed:
         raw = _signed(raw)
+    if point.uncalibrated:
+        return raw * point.scale, UNCERTAIN_SENSOR_CALIBRATION, (
+            f"{point.tag}: {point.uncalibrated}")
     return raw * point.scale, GOOD, None
 
 

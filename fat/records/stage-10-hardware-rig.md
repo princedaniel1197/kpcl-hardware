@@ -439,10 +439,9 @@ Two cautions for that plan, both from the readings above:
   shifts by 136 mV when the fans run could produce that on its own. The change
   in (OUT − ref) between fans off and fans on, after the rewire, decides it.
 
-The firmware now also prints a `drift` line every 10 s — the ADC's raw
-readings on both analogue pins, the chip's (uncalibrated) temperature and the
-uptime — for the no-load drift test that follows the rewire. Built, not yet
-flashed.
+A `drift` diagnostic line was added to the firmware for the no-load drift
+test that was to follow the rewire; it was never flashed, and was removed
+when the decision below was taken.
 
 ## Signature
 
@@ -450,3 +449,30 @@ flashed.
 |---|---|---|
 | Performed by | | |
 | Witnessed by | | |
+
+### Decision — 24 September 2026: the current stays uncalibrated
+
+The user decided not to rewire the bench. **RIG_CURRENT is treated as
+permanently unverified.** The plan above (off-breadboard ground joint, VCC/2
+reference, recalibration) is withdrawn, not deferred, and so is the drift
+investigation. What was done instead:
+
+- **The bridge publishes RIG_CURRENT as UncertainSensorCalibration**
+  (0x420A0000), with its value, whenever the firmware reads it successfully —
+  never Good. A failed read is still Bad. `sim/test_bridge.py` asserts both,
+  end to end through a real OPC UA server.
+- **The tag carries a `quality_note`**, "uncalibrated - bench demo only"
+  (migration 017, set from `config/unit1_tags.json`, audited). The engine puts
+  it first in the tag's health detail; the dashboard's Health tab shows the
+  state as `uncertain` in amber, with the note.
+- **Nothing computes from it.** No KPI, alert or event template used it on 24
+  September, and `engine/test_quality_note.py` now fails if any KPI input,
+  event trigger or alert subject resolves to a tag with a quality note.
+- Samples archived before this change stay as they were — including the Good
+  0.88 A readings; this record is where they are said to be wrong.
+
+Seen live after the change: the Health tab showed RIG_CURRENT with the note.
+It showed the state **bad**, not uncertain, because the ESP32 had restarted at
+about 15:50 UTC with 12 V already on — probably while the meter probes were on
+the board — and so, correctly, refused to take its zero. The `uncertain`
+state appears the next time the rig starts USB first, then 12 V.

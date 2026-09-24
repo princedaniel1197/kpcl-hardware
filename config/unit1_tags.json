@@ -230,7 +230,9 @@
       "scan_rate_ms": 1000,
       "exc_dev": 0.01,
       "comp_dev": 0.02,
-      "max_time_ms": 30000
+      "max_time_ms": 30000,
+      "quality_note": "uncalibrated - bench demo only",
+      "_quality_note_rationale": "24 Sep 2026: a meter put the fans' current at 0.1-0.25 A while this read 0.12-0.88 A; the ADC is uncalibrated and the bench ground is poor, and the hardware stays as it is. The bridge publishes it UncertainSensorCalibration. No KPI, alert or event template may use it (engine/test_quality_note.py)."
     },
     {
       "name": "RIG_VIBRATION",
