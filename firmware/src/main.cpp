@@ -606,8 +606,63 @@ void setup() {
   Serial.printf("rig on RS-485, %lu baud 8N1, unit %u\n",
                 (unsigned long)RS485_BAUD, MODBUS_UNIT_ID);
 #else
+  // Why a connection fails is printed, not left as a row of dots: the
+  // driver's disconnect reason, and once, whether the configured network is
+  // visible at all (the ESP32 sees 2.4 GHz only). The password is never printed.
+  static volatile uint8_t lastDisconnectReason = 0;
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    lastDisconnectReason = info.wifi_sta_disconnected.reason;
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  uint32_t waitStart = millis(), lastReport = millis();
+  bool scanned = false;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    if (millis() - lastReport < 15000) continue;
+    lastReport = millis();
+    uint8_t r = lastDisconnectReason;
+    const char *meaning =
+        r == WIFI_REASON_NO_AP_FOUND ? "network not found (wrong name, or 5 GHz only)"
+      : r == WIFI_REASON_AUTH_FAIL || r == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+        r == WIFI_REASON_HANDSHAKE_TIMEOUT ? "authentication failed (password?)"
+      : r == WIFI_REASON_ASSOC_FAIL ? "association refused by the router"
+      : r == 0 ? "no disconnect reported yet" : "see esp_wifi_types.h";
+    Serial.printf("\nWiFi not connected after %lu s: status %d, last reason %u -- %s\n",
+                  (unsigned long)((millis() - waitStart) / 1000), (int)WiFi.status(),
+                  r, meaning);
+    if (!scanned) {
+      scanned = true;
+      // A scan while the station is still trying to join fails (-2); stop
+      // trying, scan, then try again.
+      WiFi.disconnect();
+      delay(200);
+      int n = WiFi.scanNetworks();
+      if (n < 0) Serial.printf("WiFi scan failed (%d)\n", n);
+      int exact = -1, loose = -1;
+      String want = String(WIFI_SSID);
+      for (int i = 0; i < n; i++) {
+        if (WiFi.SSID(i) == want) exact = i;
+        else if (WiFi.SSID(i).equalsIgnoreCase(want) ||
+                 WiFi.SSID(i).indexOf(want) >= 0 || want.indexOf(WiFi.SSID(i)) >= 0) loose = i;
+      }
+      if (exact >= 0)
+        Serial.printf("the configured network is visible: channel %d, %d dBm, %s\n",
+                      WiFi.channel(exact), WiFi.RSSI(exact),
+                      WiFi.encryptionType(exact) == WIFI_AUTH_WPA2_ENTERPRISE
+                          ? "WPA2-Enterprise (not supported by this firmware)" : "personal security");
+      else if (loose >= 0)
+        Serial.printf("the configured network name is NOT visible exactly, but \"%s\" is "
+                      "close: check case and spaces in secrets.h\n", WiFi.SSID(loose).c_str());
+      else if (n >= 0)
+        Serial.printf("the configured network (%u characters) is NOT visible among "
+                      "%d 2.4 GHz networks (the ESP32 cannot see 5 GHz)\n",
+                      (unsigned)want.length(), n);
+      WiFi.scanDelete();
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
+  }
   Serial.printf("\nrig at %s:%u, unit %u\n", WiFi.localIP().toString().c_str(),
                 MODBUS_PORT, MODBUS_UNIT_ID);
   modbusServer.start(MODBUS_PORT, 4, 0);
