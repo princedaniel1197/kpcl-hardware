@@ -225,9 +225,35 @@ because a zero taken with the fans running would publish every current about
 
 Register map version 3 records all of it. `sim/test_bridge.py`: 30 tests.
 
-Next: flash the WiFi build (`pio run -e tcp -t upload`), run the simulator with
-`--modbus-host`, connect 12 V, check the current's sign (`ACS712_SIGN`) and scale
-against a meter, then unplug the hub probe.
+**WiFi build, later on 24 September.** Flashed and on the network (a DHCP address
+on the bench LAN, 192.168.1.89 that day). Two failures first, both found by the
+firmware saying why instead of printing dots: the building's network was 5 GHz
+only, which the ESP32 cannot see (reason 201, 16 other 2.4 GHz networks
+visible), and then the 2.4 GHz network's name differed from `secrets.h` in the
+case of one letter. From this Mac over Modbus TCP, 60 polls a second apart,
+12 V still off:
+
+| | |
+|---|---|
+| Polls | 60 of 60 answered, no errors |
+| Round trip | median 32 ms, P95 310 ms, max 539 ms (WiFi) |
+| Scan counter | 124 → 380 in the minute, never went back: no reset, ~4 scans/s as designed |
+| Status | 0x0EF: probes, accelerometer, current, bus, zero and addresses OK; supply cannot-measure (12 V off); switch and relays not fitted |
+| Hub / ambient | 29.5 / 26.6 °C |
+| Vibration, at rest | 0.36–0.53 mm/s |
+| Current, **no load** | **−0.069 to +0.005 A**, mean −0.038 A |
+
+**The current is not yet good enough to claim.** Before WiFi connected the
+no-load current read 0.000 ± 0.004 A; with the radio running it wanders by
+70 mA — 15 % of the fans' 0.46 A — and averages 38 mA low. The zero is taken
+before WiFi starts, so it does not include whatever the radio does to the 5 V
+rail or the ADC. Not yet fixed; see the next steps.
+
+Next: take the zero with WiFi up and average the current over longer than
+12 ms, then re-measure the no-load current; run the simulator with
+`--modbus-host` so the rig is read through the bridge; connect 12 V (USB
+first); check the current's sign (`ACS712_SIGN`) and scale against a meter;
+then unplug the hub probe.
 
 ## Signature
 
