@@ -27,13 +27,17 @@ import { DataSources, Settings, NotFound } from './pages/Other'
 export default function App() {
   const [who, setWho] = useState(null)
   const [checked, setChecked] = useState(false)
+  const [unreachable, setUnreachable] = useState(false)
 
   const check = useCallback(async () => {
     if (!getToken()) { setWho(null); setChecked(true); return }
     try {
       setWho(await getWhoami())
+      setUnreachable(false)
     } catch (e) {
-      if (e instanceof AuthError) setToken(null)
+      // A refused token is cleared; an API that did not answer is said so,
+      // rather than dropping the viewer back at the sign-in without a word.
+      if (e instanceof AuthError) { setToken(null); setUnreachable(false) } else setUnreachable(true)
       setWho(null)
     }
     setChecked(true)
@@ -43,7 +47,7 @@ export default function App() {
   const signOut = useCallback(() => { setToken(null); setWho(null) }, [])
 
   if (!checked) return <div className="p-6 text-[13px] text-[var(--muted)]">Loading ledger…</div>
-  if (!who) return <SignIn onToken={(t) => { setToken(t); check() }} />
+  if (!who) return <SignIn unreachable={unreachable} onToken={(t) => { setToken(t); check() }} />
   return (
     <RouterProvider>
       <DataProvider who={who} onSignOut={signOut}>
@@ -53,7 +57,7 @@ export default function App() {
   )
 }
 
-function SignIn({ onToken }) {
+function SignIn({ onToken, unreachable }) {
   const [value, setValue] = useState('')
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -74,6 +78,12 @@ function SignIn({ onToken }) {
           <input type="password" autoFocus value={value} onChange={(e) => setValue(e.target.value)}
                  aria-label="Access token" className="input w-full mt-3" placeholder="Access token" />
           <button type="submit" className="btn btn-primary mt-3">Sign in</button>
+          {unreachable && (
+            <p className="reason reason-danger mt-3" role="alert">
+              The CRPMS API did not answer at this address. It runs on the station laptop with the collector and
+              the archive (<code>make start</code>); a copy of this interface hosted elsewhere has no data behind it.
+            </p>
+          )}
         </div>
         <div className="folio px-5 pb-4 mt-0">CRPMS · monitoring overlay, read-only</div>
       </form>

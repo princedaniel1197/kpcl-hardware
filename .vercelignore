@@ -1,0 +1,9 @@
+# Vercel hosts the static UI only. The API, collector, engine and database run
+# on the station laptop (make start); nothing else in this repository is
+# deployed, and the Python api/ directory must not become a serverless function.
+/*
+!/ui
+!/config
+!/vercel.json
+/ui/node_modules
+/ui/dist

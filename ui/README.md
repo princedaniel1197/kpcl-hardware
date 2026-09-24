@@ -52,6 +52,15 @@ KPI register with lineage · Collector & buffer (the pipeline) · Gaps & losses 
 Source health · Data sources · Settings. The station and period ride in the
 query string across every link, as Sentinel's do.
 
+## On Vercel
+
+Vercel builds this directory on every push to `main` (`vercel.json` at the
+repository root; `.vercelignore` keeps everything but `ui/` and `config/` out,
+so the Python `api/` is never deployed as a function). What it hosts is the
+interface alone: the API, collector, engine and archive run on the station
+laptop (`make start`), and the hosted copy has no data behind it. Signing in
+there says that the API did not answer, rather than showing an empty ledger.
+
 ## Every value carries its quality, time and provenance
 
 Wherever a value appears it shows the number and unit, a quality chip (Good,
