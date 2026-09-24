@@ -99,10 +99,12 @@ static const uint32_t RS485_BAUD = 19200;
 static const float ACS712_MV_PER_A = 185.0f;
 
 // Current direction. +1 if the fans read positive; -1 if the ACS712's IP+/IP-
-// are the other way round. Not yet known on 24 Sep 2026: 12 V was not
-// connected. A fan load reading clearly negative is reported invalid, so a
-// wrong sign shows as a Bad current, and this is where to put it right.
-static const float ACS712_SIGN = +1.0f;
+// are the other way round. A fan load reading clearly negative is reported
+// invalid, so a wrong sign shows as a Bad current, and this is where to put it
+// right. -1 from 24 Sep 2026: when 12 V was connected at 15:12:25 UTC the
+// one-second mean went below -0.10 A within one scan and the current went Bad
+// (BadDeviceFailure) in the same second the supply appeared.
+static const float ACS712_SIGN = -1.0f;
 
 // Bench correction to the ESP32's calibrated ADC reading on the ACS712 pin.
 // Measured 24 Sep 2026 with 12 V off: multimeter ACS712 OUT to GND 2.50 V

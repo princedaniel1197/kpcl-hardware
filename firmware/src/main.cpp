@@ -62,6 +62,14 @@ static const float ACS_RAIL_HIGH_MV  = 3050.0f;
 static const float ACS_ZERO_MIN_MV   = 2300.0f;
 static const float ACS_ZERO_MAX_MV   = 2700.0f;
 static const float ACS_NEGATIVE_A    = -0.10f;
+// Averaging. Each scan takes ACS_SAMPLES_PER_SCAN readings; the register holds
+// the mean of the last ACS_AVERAGE_SCANS scans (one second at 250 ms). Chosen
+// on the bench, 24 Sep 2026, to bring the fans-off noise inside +/-10 mA with
+// WiFi running: 200 samples over 12 ms, as first written, wandered -69..+5 mA.
+// A scan that fails a check empties the window, so a fault shows at once and
+// good readings take a second to return.
+static const int ACS_SAMPLES_PER_SCAN = 400;
+static const int ACS_AVERAGE_SCANS    = 4;
 static const float SUPPLY_ADC_MAX_MV = 3050.0f;
 // The bottom of the range Espressif characterises at 11 dB. Below it the ADC
 // cannot tell a small voltage from none: with the supply disconnected this
@@ -230,8 +238,11 @@ static bool zeroCurrentSensor() {
 // Mean current over ~12 ms. The load is DC fans, so the mean is the current;
 // it is signed so that a wrong zero shows as a negative current and is caught,
 // where an RMS would have hidden the sign and reported it as load.
-static float readCurrentAmps(bool &ok) {
-  const int samples = 200;
+static float acsWindow[ACS_AVERAGE_SCANS];
+static int acsWindowCount = 0, acsWindowNext = 0;
+
+static float readCurrentAmpsOnce(bool &ok) {
+  const int samples = ACS_SAMPLES_PER_SCAN;
   double sum = 0.0;
   int atRail = 0;
   for (int i = 0; i < samples; i++) {
@@ -243,8 +254,29 @@ static float readCurrentAmps(bool &ok) {
     delayMicroseconds(50);
   }
   float amps = ACS712_SIGN * ((float)(sum / samples) - acsZeroMv) / ACS712_MV_PER_A;
-  ok = acsZeroed && atRail < samples / 10 && amps > ACS_NEGATIVE_A;
+  ok = acsZeroed && atRail < samples / 10;
   return amps;
+}
+
+// The published current: the mean of the last ACS_AVERAGE_SCANS good scans.
+// Invalid until the window is full, and emptied by any scan that fails, so no
+// average ever spans a fault. The negative-current check is on the average.
+static float readCurrentAmps(bool &ok) {
+  bool scanOk = false;
+  float amps = readCurrentAmpsOnce(scanOk);
+  if (!scanOk) {
+    acsWindowCount = 0;
+    ok = false;
+    return amps;
+  }
+  acsWindow[acsWindowNext] = amps;
+  acsWindowNext = (acsWindowNext + 1) % ACS_AVERAGE_SCANS;
+  if (acsWindowCount < ACS_AVERAGE_SCANS) acsWindowCount++;
+  float sum = 0.0f;
+  for (int i = 0; i < acsWindowCount; i++) sum += acsWindow[i];
+  float mean = sum / acsWindowCount;
+  ok = acsWindowCount == ACS_AVERAGE_SCANS && mean > ACS_NEGATIVE_A;
+  return mean;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,13 +595,6 @@ void setup() {
                   RUN_SWITCH_FITTED ? "fitted" : "NOT fitted");
   }
 
-  // Zero the current sensor with the load off: the relays are de-energised
-  // above and have had time to open (or, with no relays, 12 V is not yet on). If this is wrong, every current reading is
-  // wrong, so a zero outside plausibility leaves current invalid until a good
-  // re-zero (coil 2) rather than publishing offset readings.
-  delay(RELAY_SETTLE_MS);
-  zeroCurrentSensor();
-
   probesConfigured = addressSet(HUB_PROBE_ADDRESS) &&
                      addressSet(AMBIENT_PROBE_ADDRESS);
   setStatus(ST_PROBES_CONFIG, probesConfigured);
@@ -605,6 +630,8 @@ void setup() {
   modbusServer.begin(Serial2);
   Serial.printf("rig on RS-485, %lu baud 8N1, unit %u\n",
                 (unsigned long)RS485_BAUD, MODBUS_UNIT_ID);
+  delay(RELAY_SETTLE_MS);
+  zeroCurrentSensor();
 #else
   // Why a connection fails is printed, not left as a row of dots: the
   // driver's disconnect reason, and once, whether the configured network is
@@ -665,6 +692,19 @@ void setup() {
   }
   Serial.printf("\nrig at %s:%u, unit %u\n", WiFi.localIP().toString().c_str(),
                 MODBUS_PORT, MODBUS_UNIT_ID);
+  // Radio power saving off: in modem-sleep the radio wakes in bursts, and the
+  // bursts moved the no-load current by tens of mA (and delayed ARP replies,
+  // so the rig was intermittently unreachable). A steady radio load is a
+  // steady offset, which the zero below then includes.
+  WiFi.setSleep(false);
+  delay(500);
+  // Zero the current sensor now, under the conditions it will read in: with
+  // WiFi up. Only with the load off -- relays open, or with no relays, 12 V not
+  // yet connected (zeroCurrentSensor() checks). A zero outside plausibility
+  // leaves the current invalid until a good re-zero (coil 2) rather than
+  // publishing offset readings.
+  delay(RELAY_SETTLE_MS);
+  zeroCurrentSensor();
   modbusServer.start(MODBUS_PORT, 4, 0);
 #endif
 }

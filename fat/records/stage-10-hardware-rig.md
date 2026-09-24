@@ -249,11 +249,41 @@ no-load current read 0.000 ± 0.004 A; with the radio running it wanders by
 before WiFi starts, so it does not include whatever the radio does to the 5 V
 rail or the ADC. Not yet fixed; see the next steps.
 
-Next: take the zero with WiFi up and average the current over longer than
-12 ms, then re-measure the no-load current; run the simulator with
-`--modbus-host` so the rig is read through the bridge; connect 12 V (USB
-first); check the current's sign (`ACS712_SIGN`) and scale against a meter;
-then unplug the hub probe.
+**Current: zero after WiFi, longer averaging.** The zero is now taken once WiFi
+is up (still only while the supply reads no 12 V), WiFi power saving is off
+(the radio's wake bursts were moving the reading, and delayed ARP replies), and
+the published current is the mean of 400 samples a scan over the last four
+scans (one second). Fans off, polled once a second over Modbus:
+
+| | No-load current | Spread |
+|---|---|---|
+| Before: 200 samples / 12 ms, zero before WiFi, modem sleep | −69 to +5 mA, mean −38 | SD 26 mA |
+| After, first minute from boot | 0 to +13 mA, mean +4.9 | SD 3.0 mA |
+| After, minutes 2–3 | +3 to +13 mA, mean +8.5 | SD 2.2 mA |
+| After, per minute from the archive, 15:09–15:12 | means +12, +21, +25, +23 mA; max +31 mA | — |
+
+**The noise is inside ±10 mA; the zero is not.** Random scatter fell from an
+SD of 26 mA to about 2–3 mA, but the zero drifted upward by about 25 mA
+(≈ 5 mV at the ADC) over the six minutes after it was taken. Whether it is the
+ESP32's ADC warming (the radio now runs continuously, and 2.5 V is above the
+range the ADC is characterised for) or the ACS712 has not been separated: that
+needs a meter on OUT while the reading drifts. The ±10 mA target is **not met**.
+
+**The rig through the bridge.** The simulator was restarted at 15:09 UTC with
+`--modbus-host 192.168.1.89`: the bridge reads the real rig, the collector
+archives it, and the API and the dashboard's Health tab show it —
+RIG_CURRENT, RIG_VIBRATION, RIG_HUB_TEMP and RIG_AMBIENT_TEMP Good,
+RIG_SUPPLY_V BadOutOfRange with no value while 12 V was off, and RIG_RUNNING
+BadNotConnected with no value.
+
+**12 V, 15:12:25 UTC.** The supply read 11.79 V, then 12.09–12.15 V (Good; not
+yet compared with a meter). In the same second the current went Bad: the
+one-second mean fell below −0.10 A within a scan of the fans starting, so the
+ACS712 is reversed, which is what the negative check is for. `ACS712_SIGN` is
+now −1. Vibration stayed at 0.4 mm/s with the fans on.
+
+Next: re-zero with 12 V off and the sign corrected; measure the fan current
+against a meter in series; find the drift; then unplug the hub probe.
 
 ## Signature
 
