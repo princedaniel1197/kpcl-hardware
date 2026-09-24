@@ -1,20 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import Pipeline from './Pipeline'
-import Mimic from './Mimic'
-import Trend from './Trend'
-import Scrubber from './Scrubber'
-import { AuthError, connectEvents, getEvents, getKpis, getStatus, getTagHealth,
-         getToken, getWhoami, setToken } from './api'
-import { isa, mono, sans, qualityColour } from './theme'
+// CRPMS — the visualisation, as a module of the Sentinel product: the same
+// ivory ledger, shell and components (see src/styles/sentinel.css and
+// src/components/), with CRPMS's own rules on top: every value carries its
+// quality, its source timestamp and its provenance, and a value that is not
+// Good is never shown as a number it does not have.
+//
+// This file holds the sign-in, the routes, and the DataProvider: the
+// dashboard's one poll (§528, 2-3 s) and the collector's live event stream.
 
-const MIMIC_TAGS = [
-  'U1_MW', 'U1_TURB_SPEED', 'U1_DRUM_PRESS', 'U1_MS_TEMP', 'U1_MS_PRESS',
-  'U1_FEEDWATER_FLOW', 'U1_COAL_FLOW', 'U1_AUX_POWER', 'U1_CONDENSER_VAC',
-  'U1_GEN_STATOR_TEMP', 'U1_BEARING_VIB', 'U1_BOILER_LIGHTUP',
-  'U1_TURB_ROLLING', 'U1_BREAKER_CLOSED',
-]
-
-const TABS = ['Pipeline', 'Unit overview', 'Unit TSI', 'Trends', 'Replay', 'Health']
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AuthError, connectEvents, getAllEvents, getAssets, getAttributes, getKpis,
+         getLatest, getStatus, getTagHealth, getTags, getToken, getWhoami, setToken } from './api'
+import { DataContext, useData } from './lib/data'
+import { RouterProvider, match, useRouter } from './lib/router'
+import { klassOf } from './lib/quality'
+import Shell, { APP_NAME } from './components/Shell'
+import Overview from './pages/Overview'
+import { AssetTree, AssetDetail } from './pages/Assets'
+import { TagRegister, TagDetail } from './pages/Tags'
+import { UnitOverview, Trends, ReplayPage, BenchRig } from './pages/Live'
+import { EventFrames, EventDetail, KpiRegister, KpiDetail } from './pages/EventsKpis'
+import { CollectorHealth, Gaps, SourceHealth } from './pages/Health'
+import { DataSources, Settings, NotFound } from './pages/Other'
 
 // Every API call is authenticated (§509). Without a valid token there is
 // nothing to show, so the first thing on screen is the sign-in.
@@ -36,320 +42,177 @@ export default function App() {
   useEffect(() => { check() }, [check])
   const signOut = useCallback(() => { setToken(null); setWho(null) }, [])
 
-  if (!checked) return null
+  if (!checked) return <div className="p-6 text-[13px] text-[var(--muted)]">Loading ledger…</div>
   if (!who) return <SignIn onToken={(t) => { setToken(t); check() }} />
-  return <Dashboard who={who} onSignOut={signOut} />
+  return (
+    <RouterProvider>
+      <DataProvider who={who} onSignOut={signOut}>
+        <Shell><Routes /></Shell>
+      </DataProvider>
+    </RouterProvider>
+  )
 }
 
 function SignIn({ onToken }) {
   const [value, setValue] = useState('')
   return (
-    <div style={{ fontFamily: sans, background: isa.background, minHeight: '100vh',
-                  color: isa.text, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', padding: 16 }}>
-      <form onSubmit={(e) => { e.preventDefault(); if (value.trim()) onToken(value.trim()) }}
-            style={{ background: isa.panel, border: `1px solid ${isa.line}`,
-                     padding: 20, width: 'min(420px, 100%)' }}>
-        <strong style={{ letterSpacing: 0.5 }}>CRPMS</strong>
-        <p style={{ fontSize: 12, color: isa.textDim }}>
-          Paste an access token. Tokens are issued with
-          <code style={{ fontFamily: mono }}> python -m ops.access create</code> and
-          shown once; the server keeps only their SHA-256.
-        </p>
-        <input type="password" autoFocus value={value}
-               onChange={(e) => setValue(e.target.value)}
-               aria-label="access token"
-               style={{ width: '100%', boxSizing: 'border-box', fontFamily: mono,
-                        fontSize: 12, padding: 6, border: `1px solid ${isa.lineStrong}` }} />
-        <button type="submit" style={{ marginTop: 10, fontFamily: sans, fontSize: 12,
-                                       padding: '4px 12px', cursor: 'pointer' }}>
-          Sign in
-        </button>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <form className="panel w-full max-w-[440px]"
+            onSubmit={(e) => { e.preventDefault(); if (value.trim()) onToken(value.trim()) }}>
+        <div className="px-5 pt-5 pb-3 rule-master">
+          <div className="display text-[21px] leading-none">{APP_NAME}</div>
+          <div className="text-[10.5px] uppercase tracking-[0.13em] text-[var(--muted)] mt-1.5">
+            Karnataka Power Corporation
+          </div>
+        </div>
+        <div className="px-5 py-4">
+          <h1 className="text-[22px] leading-tight">Sign in</h1>
+          <p className="text-[12.5px] text-[var(--muted)] mt-1">
+            Paste an access token. Tokens are issued with <code>make token</code> (or
+            <code> python -m ops.access create</code>) and shown once; the server keeps only their SHA-256.
+          </p>
+          <input type="password" autoFocus value={value} onChange={(e) => setValue(e.target.value)}
+                 aria-label="Access token" className="input w-full mt-3" placeholder="Access token" />
+          <button type="submit" className="btn btn-primary mt-3">Sign in</button>
+        </div>
+        <div className="folio px-5 pb-4 mt-0">CRPMS · monitoring overlay, read-only</div>
       </form>
     </div>
   )
 }
 
-function Dashboard({ who, onSignOut }) {
-  const [tab, setTab] = useState('Pipeline')
-  const [events, setEvents] = useState([])
-  const [link, setLink] = useState('connecting')
-  const [status, setStatus] = useState(null)
-  const [kpis, setKpis] = useState([])
-  const [health, setHealth] = useState([])
-  const [frames, setFrames] = useState([])
-  const [values, setValues] = useState({})
+const ROUTES = [
+  ['/', Overview],
+  ['/assets', AssetTree], ['/assets/:code', AssetDetail],
+  ['/tags', TagRegister], ['/tags/:name', TagDetail],
+  ['/unit', UnitOverview], ['/trends', Trends], ['/replay', ReplayPage], ['/rig', BenchRig],
+  ['/events', EventFrames], ['/events/:id', EventDetail],
+  ['/kpis', KpiRegister], ['/kpis/:kpi/:asset', KpiDetail],
+  ['/health', CollectorHealth], ['/health/gaps', Gaps], ['/health/sources', SourceHealth],
+  ['/sources', DataSources], ['/settings', Settings],
+]
 
-  // Live events. Kept bounded: the picture needs the recent past, not all of it.
+function Routes() {
+  const { path } = useRouter()
+  const { ready } = useData()
+  // Until the first read lands, a detail page would say its record does not
+  // exist; say what is true instead.
+  if (!ready) return <div className="py-10 text-[13px] text-[var(--muted)]">Loading ledger…</div>
+  for (const [pattern, Page] of ROUTES) {
+    const params = match(pattern, path)
+    if (params) return <Page params={params} key={path} />
+  }
+  return <NotFound />
+}
+
+const STREAM_TAGS_REFRESH_MS = 30000
+
+function DataProvider({ who, onSignOut, children }) {
+  const [status, setStatus] = useState(null)
+  const [health, setHealth] = useState([])
+  const [kpis, setKpis] = useState([])
+  const [frames, setFrames] = useState([])
+  const [tags, setTags] = useState([])
+  const [assets, setAssets] = useState([])
+  const [attributes, setAttributes] = useState({})
+  const [values, setValues] = useState({})
+  const [events, setEvents] = useState([])
+  const [streamCount, setStreamCount] = useState(0)
+  const [link, setLink] = useState('connecting')
+  const [now, setNow] = useState(Date.now())
+  const [configReady, setConfigReady] = useState(false)
+  const [pollReady, setPollReady] = useState(false)
+  const lastStreamed = useRef({})
+
+  const guard = useCallback((e) => {
+    // A revoked or expired token signs the viewer out; the API being briefly
+    // away is not worth a red screen.
+    if (e instanceof AuthError) onSignOut()
+  }, [onSignOut])
+
+  // Live values: every acquired value the collector emits.
   const onEvent = useCallback((e) => {
     setEvents((prev) => [...prev.slice(-400), e])
+    setStreamCount((n) => n + 1)
     if (e.kind === 'value_received' && e.tag) {
-      setValues((v) => ({
-        ...v,
-        [e.tag]: {
-          value: e.value,
-          quality: e.quality,
-          quality_class: ['Good', 'Uncertain', 'Bad', 'Reserved'][(e.quality >>> 30) & 3],
-          source_ts: e.source_ts,
-        },
-      }))
+      lastStreamed.current[e.tag] = Date.now()
+      setValues((v) => ({ ...v, [e.tag]: {
+        value: e.value, quality: e.quality, quality_class: klassOf(e.quality),
+        source_ts: e.source_ts, server_ts: e.server_ts ?? null, via: 'stream' } }))
     }
   }, [])
-
   useEffect(() => connectEvents(onEvent, setLink), [onEvent])
 
+  // The dashboard poll.
   useEffect(() => {
     const poll = async () => {
       try {
-        const [s, k, h, f] = await Promise.all([
-          getStatus(), getKpis(), getTagHealth(), getEvents('KPCL-RTPS-U1')])
-        setStatus(s); setKpis(k); setHealth(h); setFrames(f)
-      } catch (e) {
-        // A revoked or expired token signs the viewer out; the API being
-        // briefly away is not worth a red screen.
-        if (e instanceof AuthError) onSignOut()
-      }
+        const [s, h, k] = await Promise.all([getStatus(), getTagHealth(), getKpis()])
+        setStatus(s); setHealth(h); setKpis(k); setNow(Date.now()); setPollReady(true)
+      } catch (e) { guard(e) }
     }
     poll()
     const t = setInterval(poll, 2500)          // §528: 2-3 s dashboard refresh
     return () => clearInterval(t)
-  }, [onSignOut])
+  }, [guard])
 
-  const badTags = health.filter((h) => h.state !== 'ok')
+  // Slower-moving things: configuration, event frames.
+  useEffect(() => {
+    let live = true
+    const load = async () => {
+      try {
+        const [t, a, f] = await Promise.all([getTags(), getAssets(), getAllEvents(100)])
+        if (!live) return
+        setTags(t); setAssets(a); setFrames(f); setConfigReady(true)
+        const attrs = {}
+        await Promise.all(a.map(async (x) => {
+          try { attrs[x.asset_code] = await getAttributes(x.asset_code) } catch { attrs[x.asset_code] = [] }
+        }))
+        if (live) setAttributes(attrs)
+      } catch (e) { guard(e) }
+    }
+    load()
+    const t = setInterval(load, 30000)
+    return () => { live = false; clearInterval(t) }
+  }, [guard])
 
-  return (
-    <div style={{ fontFamily: sans, background: isa.background, minHeight: '100vh',
-                  color: isa.text }}>
-      <header style={{ display: 'flex', alignItems: 'baseline', gap: 16,
-                       padding: '10px 16px', borderBottom: `1px solid ${isa.line}`,
-                       background: isa.panel }}>
-        <strong style={{ letterSpacing: 0.5 }}>CRPMS</strong>
-        <span style={{ fontSize: 11, color: isa.textDim }}>
-          Orianode demonstrator — KPCL RTPS
-        </span>
-        <nav style={{ display: 'flex', gap: 4, marginLeft: 12 }}>
-          {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)}
-                    style={{
-                      fontFamily: sans, fontSize: 12, padding: '3px 10px',
-                      border: `1px solid ${t === tab ? isa.lineStrong : 'transparent'}`,
-                      background: t === tab ? isa.background : 'transparent',
-                      cursor: 'pointer',
-                    }}>{t}</button>
-          ))}
-        </nav>
-        <span style={{ marginLeft: 'auto', fontFamily: mono, fontSize: 11,
-                       color: link === 'connected' ? isa.textDim : isa.bad }}>
-          {link === 'connected' ? `live · ${events.length} events` : `stream ${link}`}
-        </span>
-        <span style={{ fontSize: 11, color: isa.textDim }}>
-          {who.username} · {who.role}{who.station ? ` (${who.station})` : ''}
-        </span>
-        <button onClick={onSignOut}
-                style={{ fontFamily: sans, fontSize: 11, padding: '2px 8px',
-                         cursor: 'pointer' }}>
-          Sign out
-        </button>
-      </header>
+  // The latest archived sample of each tag the stream has not updated
+  // recently: tags that have not changed (the archive keeps changes), the
+  // collector's own health, and anything acquired before this page opened.
+  useEffect(() => {
+    if (tags.length === 0) return
+    let live = true
+    const refresh = async () => {
+      const stale = tags.filter((t) => Date.now() - (lastStreamed.current[t.name] ?? 0) > STREAM_TAGS_REFRESH_MS)
+      for (let i = 0; i < stale.length && live; i += 6) {
+        const batch = stale.slice(i, i + 6)
+        const got = await Promise.all(batch.map((t) => getLatest(t.name).catch(() => undefined)))
+        if (!live) return
+        setValues((v) => {
+          const next = { ...v }
+          batch.forEach((t, j) => {
+            if (got[j] === undefined) return
+            if (lastStreamed.current[t.name] && Date.now() - lastStreamed.current[t.name] < STREAM_TAGS_REFRESH_MS) return
+            next[t.name] = got[j] ? { ...got[j], via: 'archive' } : null
+          })
+          return next
+        })
+      }
+    }
+    refresh()
+    const t = setInterval(refresh, STREAM_TAGS_REFRESH_MS)
+    return () => { live = false; clearInterval(t) }
+  }, [tags])
 
-      <main style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {tab === 'Pipeline' && (
-          <>
-            <ScaleToFit designWidth={1360}>
-              <Pipeline events={events} status={status} kpis={kpis} />
-            </ScaleToFit>
-            <KpiStrip kpis={kpis} />
-            <p style={{ fontSize: 11, color: isa.textDim, maxWidth: 780, margin: 0 }}>
-              Every dot is one acquired value, drawn because the collector
-              emitted an event — not on a timer. Stop the database and the dots
-              stop at the buffer, because the collector starts reporting
-              <code> value_buffered</code> instead of <code> value_forwarded</code>.
-            </p>
-          </>
-        )}
+  const value = useMemo(() => {
+    const tagByName = Object.fromEntries(tags.map((t) => [t.name, t]))
+    const healthByTag = Object.fromEntries(health.map((h) => [h.tag, h]))
+    const stations = [...new Set(assets.map((a) => a.station).filter(Boolean))].sort()
+    return { who, signOut: onSignOut, status, health, healthByTag, kpis, frames, tags, tagByName,
+             assets, attributes, values, events, streamCount, link, stations, now,
+             ready: configReady && pollReady }
+  }, [who, onSignOut, status, health, kpis, frames, tags, assets, attributes, values, events,
+      streamCount, link, now, configReady, pollReady])
 
-        {tab === 'Unit overview' && (
-          <>
-            <Mimic values={values} />
-            <KpiStrip kpis={kpis} />
-          </>
-        )}
-
-        {tab === 'Unit TSI' && <TsiOverview values={values} frames={frames} />}
-
-        {tab === 'Trends' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {['U1_MW', 'U1_MS_TEMP', 'U1_COAL_FLOW', 'U1_BEARING_VIB'].map((t) => (
-              <Trend key={t} tag={t} />
-            ))}
-          </div>
-        )}
-
-        {tab === 'Replay' && (
-          <Scrubber tags={['U1_MW', 'U1_MS_TEMP', 'U1_COAL_FLOW',
-                           'COLLECTOR_PRIMARY_BUFFER_DEPTH',
-                           'COLLECTOR_PRIMARY_LINK_STATE']} />
-        )}
-
-        {tab === 'Health' && (
-          <div>
-            <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>
-              Tag health — {badTags.length} not OK of {health.length}
-            </h3>
-            <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: isa.textDim }}>
-                  <th style={th}>Tag</th><th style={th}>State</th>
-                  <th style={th}>Source quality</th><th style={th}>Computed</th>
-                  <th style={th}>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                {health.map((h) => (
-                  <tr key={h.tag} style={{ borderTop: `1px solid ${isa.line}` }}>
-                    <td style={{ ...td, fontFamily: mono }}>{h.tag}</td>
-                    <td style={{ ...td, color: h.state === 'ok' ? isa.textDim
-                                               : h.state === 'uncertain' ? isa.uncertain
-                                               : isa.bad }}>
-                      {h.state}
-                    </td>
-                    <td style={{ ...td, color: qualityColour(h.source_class) }}>
-                      {h.source_quality === null ? '—' : `${h.source_class} (${h.source_quality})`}
-                    </td>
-                    <td style={{ ...td, color: qualityColour(h.computed_class) }}>
-                      {h.computed_class}
-                    </td>
-                    <td style={{ ...td, color: isa.textDim }}>{h.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p style={{ fontSize: 11, color: isa.textDim, maxWidth: 780 }}>
-              Source quality and computed quality are separate columns on purpose.
-              A value that arrived Good and failed a range check is not the same
-              thing as a value the instrument disowned.
-            </p>
-          </div>
-        )}
-      </main>
-    </div>
-  )
-}
-
-// The pipeline canvas has fixed coordinates so the particle overlay can share
-// them exactly. This scales the whole thing to the available width instead.
-function ScaleToFit({ designWidth, children }) {
-  const [scale, setScale] = useState(1)
-  const ref = useCallback((node) => {
-    if (!node) return
-    const fit = () => setScale(Math.min(1, node.clientWidth / designWidth))
-    fit()
-    const observer = new ResizeObserver(fit)
-    observer.observe(node)
-  }, [designWidth])
-  return (
-    <div ref={ref} style={{ width: '100%', overflow: 'hidden' }}>
-      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left',
-                    height: 300 * scale }}>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-const th = { padding: '4px 8px', fontWeight: 500 }
-const td = { padding: '3px 8px' }
-
-function KpiStrip({ kpis }) {
-  return (
-    <div style={{ display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-                  gap: 10 }}>
-      {kpis.map((k) => {
-        const abnormal = k.quality_class !== 'Good'
-        return (
-          <div key={`${k.kpi}-${k.asset_code}`}
-               style={{ border: `1px solid ${abnormal ? isa.bad : isa.line}`,
-                        background: abnormal ? '#f7e9e8' : isa.panel,
-                        padding: '6px 9px' }}>
-            <div style={{ fontSize: 10, color: isa.textDim }}>
-              {k.kpi} <span style={{ fontFamily: mono }}>v{k.version}</span>
-            </div>
-            <div style={{ fontFamily: mono, fontSize: 18,
-                          color: abnormal ? isa.bad : isa.value }}>
-              {k.value === null ? '- - -' : Number(k.value).toFixed(2)}
-              <span style={{ fontSize: 10, color: isa.textDim, marginLeft: 4 }}>
-                {k.unit}
-              </span>
-            </div>
-            <div style={{ fontSize: 9, color: abnormal ? isa.bad : isa.textDim }}>
-              {k.reason ?? `${k.asset_code} · ref ${k.reference ?? '—'}`}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// §469 asks for a Unit TSI (turbine supervisory) overview alongside the unit
-// overview. Same layout conventions, different depth — level 3 of the display
-// hierarchy.
-function TsiOverview({ values, frames }) {
-  const v = (t) => values[t] ?? { value: null, quality_class: 'unknown' }
-  const latest = frames[0]
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-      <div style={{ border: `1px solid ${isa.line}`, background: isa.panel,
-                    padding: 12 }}>
-        <div style={{ fontSize: 12, marginBottom: 8 }}>
-          UNIT TSI OVERVIEW — KPCL-RTPS-U1
-        </div>
-        {[['Shaft speed', 'U1_TURB_SPEED', 'rpm', 0],
-          ['Bearing vibration', 'U1_BEARING_VIB', 'mm/s', 2],
-          ['Stator temperature', 'U1_GEN_STATOR_TEMP', '°C', 1],
-          ['Condenser vacuum', 'U1_CONDENSER_VAC', 'mmHg', 0]].map(
-          ([label, tag, unit, digits]) => {
-            const d = v(tag)
-            const abnormal = d.quality_class !== 'Good'
-            return (
-              <div key={tag} style={{ display: 'flex', justifyContent: 'space-between',
-                                      borderTop: `1px solid ${isa.line}`,
-                                      padding: '6px 0' }}>
-                <span style={{ fontSize: 11, color: isa.textDim }}>{label}</span>
-                <span style={{ fontFamily: mono, fontSize: 15,
-                               color: abnormal ? qualityColour(d.quality_class) : isa.value }}>
-                  {d.value === null ? '- - -' : Number(d.value).toFixed(digits)} {unit}
-                </span>
-              </div>
-            )
-          })}
-      </div>
-      <div style={{ border: `1px solid ${isa.line}`, background: isa.panel,
-                    padding: 12 }}>
-        <div style={{ fontSize: 12, marginBottom: 8 }}>LATEST EVENT FRAME</div>
-        {!latest && <div style={{ fontSize: 11, color: isa.textDim }}>none captured</div>}
-        {latest && (
-          <>
-            <div style={{ fontFamily: mono, fontSize: 11, color: isa.textDim }}>
-              {latest.template} · {latest.status}
-              {latest.duration_s != null && ` · ${(latest.duration_s / 60).toFixed(1)} min`}
-            </div>
-            <table style={{ fontSize: 11, marginTop: 8, width: '100%' }}>
-              <tbody>
-                {latest.milestones.map((m) => (
-                  <tr key={m.name}>
-                    <td style={{ ...td, color: isa.textDim }}>{m.name}</td>
-                    <td style={{ ...td, fontFamily: mono, textAlign: 'right' }}>
-                      +{Math.round(m.offset_s)}s
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-      </div>
-    </div>
-  )
+  return <DataContext.Provider value={value}>{children}</DataContext.Provider>
 }

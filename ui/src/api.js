@@ -50,6 +50,17 @@ export const getStatus = () => json('/api/status')
 export const getTags = () => json('/api/tags')
 export const getTrend = (tag, minutes = 10) =>
   json(`/api/trend/${encodeURIComponent(tag)}?minutes=${minutes}`)
+// The newest archived sample of a tag within the last 24 hours (the API's
+// maximum window), or none. The trend endpoint returns the newest `limit`
+// points, so limit=1 is the latest value, with its quality and timestamps.
+export const getLatest = async (tag) =>
+  (await json(`/api/trend/${encodeURIComponent(tag)}?minutes=1440&limit=1`)).points[0] ?? null
+export const getRecent = (tag, minutes, limit = 25) =>
+  json(`/api/trend/${encodeURIComponent(tag)}?minutes=${minutes}&limit=${limit}`)
+export const getAttributes = (assetCode) =>
+  json(`/api/assets/${encodeURIComponent(assetCode)}/attributes`)
+export const getAssets = () => json('/api/assets')
+export const getAllEvents = (limit = 200) => json(`/api/events?limit=${limit}`)
 export const getKpis = (assetCode) =>
   json(`/api/kpis${assetCode ? `?asset_code=${encodeURIComponent(assetCode)}` : ''}`)
 export const getEvents = (assetCode) =>

@@ -1,0 +1,180 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   CRPMS DESIGN TOKENS — the Sentinel ivory ledger
+   One file. Everything below the first rule is Sentinel's app/globals.css
+   (princedaniel1197/KPCL, branch sentinel-v2 — what https://kpcl.vercel.app
+   serves), copied unchanged so the two products cannot drift apart by
+   re-typing. Checked against the live site's computed styles on 24 Sep 2026:
+   body DM Sans 14px/21px, headings Cormorant Garamond 600, ink #2A2418 on
+   paper #F5F1E8, ledger headings 11px/600 uppercase, chips 11px/600.
+   Sentinel uses no monospace face: numbers, tags and timestamps are DM Sans
+   with tabular figures.
+
+   Fonts are self-hosted (@fontsource), as Sentinel's are (next/font): the same
+   families and weights, no request to Google at runtime.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --font-display: 'Cormorant Garamond';
+  --font-sans: 'DM Sans';
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ───────────────────────────────────────────────────────────────────────────
+   IVORY LEDGER
+   A document of record made interactive. Paper, ink, hairline rules and a
+   signature double rule. No dark mode: a ledger has one colour.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --paper: #F5F1E8;
+  --panel: #FBF9F3;
+  --ink: #2A2418;
+  --muted: #7A7260;
+  --faint: #A39B87;
+  --gold: #C9A84C;
+  --hairline: #CBB97F;
+  --wash: #EFE9DA;
+  --success: #5B6E3A;
+  --danger: #8C3B2E;
+  --warning: #A9762B;
+  --info: #5C6B7A;
+}
+
+html, body {
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+body { font-family: var(--font-sans), system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
+
+/* Every number in the platform lines up in its column. */
+.tnum, table, .numeric { font-variant-numeric: tabular-nums; }
+
+h1, h2, h3, .display { font-family: var(--font-display), Georgia, serif; font-weight: 600; letter-spacing: -0.01em; }
+
+/* ── rules ─────────────────────────────────────────────────────────────── */
+.rule-hair { border-bottom: 0.5px solid var(--hairline); }
+.rule-master { border-bottom: 1.5px solid var(--gold); }
+.rule-master-top { border-top: 1.5px solid var(--gold); }
+
+/* ── panels ────────────────────────────────────────────────────────────── */
+.panel {
+  background: var(--panel);
+  border: 0.5px solid var(--hairline);
+}
+
+/* ── ledger tables: ruled rows, no zebra, no card-per-row ───────────────── */
+.ledger { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ledger thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--hairline);
+  white-space: nowrap;
+}
+.ledger tbody td {
+  padding: 9px 12px;
+  border-bottom: 0.5px solid rgba(203, 185, 127, 0.55);
+  vertical-align: top;
+}
+.ledger tbody tr:last-child td { border-bottom: none; }
+.ledger tbody tr:hover { background: var(--wash); }
+.ledger .n { text-align: right; white-space: nowrap; }
+.ledger-wrap { border-bottom: 1.5px solid var(--gold); overflow-x: auto; }
+
+/* ── status inks: tint chips at ~12%, text at full strength ─────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 2px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.chip-success { background: rgba(91, 110, 58, 0.12); color: var(--success); }
+.chip-danger  { background: rgba(140, 59, 46, 0.12); color: var(--danger); }
+.chip-warning { background: rgba(169, 118, 43, 0.12); color: var(--warning); }
+.chip-info    { background: rgba(92, 107, 122, 0.12); color: var(--info); }
+.chip-gold    { background: rgba(201, 168, 76, 0.15); color: #8a6f1e; }
+.chip-muted   { background: rgba(122, 114, 96, 0.10); color: var(--muted); }
+
+/* ── controls ──────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; font-size: 13px; font-weight: 500;
+  border: 0.5px solid var(--hairline); background: var(--panel); color: var(--ink);
+  cursor: pointer; border-radius: 2px;
+}
+.btn:hover { background: var(--wash); }
+.btn-primary { background: var(--gold); border-color: var(--gold); color: #2A2418; font-weight: 600; }
+.btn-primary:hover { background: #d8b962; }
+.select, .input {
+  background: var(--panel); border: 0.5px solid var(--hairline); color: var(--ink);
+  padding: 5px 9px; font-size: 13px; border-radius: 2px;
+}
+.select:focus, .input:focus { outline: 1.5px solid var(--gold); outline-offset: -1px; }
+
+.link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 2px; }
+.link:hover { text-decoration-color: var(--gold); }
+
+/* ── hero numeral ──────────────────────────────────────────────────────── */
+.hero-num { font-family: var(--font-display), Georgia, serif; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 0.95; letter-spacing: -0.02em; }
+
+/* ── the synthetic-data folio that closes every page ────────────────────── */
+.folio {
+  font-size: 11px; color: var(--faint); letter-spacing: 0.03em;
+  border-top: 0.5px solid var(--hairline); padding-top: 10px; margin-top: 28px;
+}
+
+/* ── printable report previews: the only pure white in the platform ─────── */
+.report-sheet { background: #FFFFFF; border: 0.5px solid var(--hairline); }
+
+/* ── print ─────────────────────────────────────────────────────────────── */
+@media print {
+  @page { margin: 16mm; }
+  body { background: #fff; font-size: 11px; }
+  .no-print { display: none !important; }
+  .print-full { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  .panel, .report-sheet { border: 0.5px solid #999; background: #fff; }
+  .ledger tbody tr:hover { background: transparent; }
+  a { text-decoration: none; color: #000; }
+  .page-break { page-break-before: always; }
+}
+
+/* scrollbars kept quiet */
+::-webkit-scrollbar { height: 9px; width: 9px; }
+::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 0; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ── CRPMS additions, in Sentinel's vocabulary ─────────────────────────────
+   Nothing here introduces a colour: quality chips are Sentinel's status
+   chips, and the value cell is its ledger type at tabular figures. */
+
+/* A value that has no number: the reason is shown instead, never a zero. */
+.no-value { color: var(--muted); }
+.reason { font-size: 11.5px; color: var(--muted); line-height: 1.4; white-space: normal; max-width: 42ch; }
+/* Sentinel's right-aligned number cells do not wrap (.ledger .n); a reason
+   inside one must, or a long StatusCode description widens the column off the
+   page. It wraps at 42ch and sits against the right edge like the number. */
+.ledger .n .reason { margin-left: auto; text-align: right; }
+
+/* Cormorant's default figures are old-style: in "U1_MS_TEMP" the 1 sits like
+   a small capital I, and the tag reads "UI". Identifier titles take lining
+   figures; Sentinel's word titles keep their old-style numerals. */
+.ident { font-variant-numeric: lining-nums; }
+
+/* Native controls take the gold accent, not the browser's blue. */
+input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--gold); }
+
+/* On paper there is no navigation: the sidebar and header are .no-print, and
+   the two-column shell collapses so the page takes the whole sheet. */
+@media print {
+  .app-grid { display: block !important; }
+}
+.reason-danger { color: var(--danger); }
+.reason-warning { color: var(--warning); }

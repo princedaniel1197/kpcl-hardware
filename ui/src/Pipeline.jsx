@@ -16,10 +16,10 @@
 // A Bad value is drawn differently in transit and is SEEN to be rejected at the
 // KPI node, with its reason, rather than passing through.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactFlow, { Background, Handle, Position, useEdgesState, useNodesState } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { isa, mono, sans, qualityColour } from './theme'
+import { isa, mono, sans } from './theme'
 
 const NODE_W = 150
 const NODE_H = 76
@@ -31,7 +31,7 @@ function Box({ data }) {
     <div style={{
       width: NODE_W, height: NODE_H, borderRadius: 3,
       border: `1px solid ${alarm ? isa.bad : isa.lineStrong}`,
-      background: alarm ? '#f7e9e8' : isa.panel,
+      background: alarm ? isa.badWash : isa.panel,
       color: isa.text, fontFamily: sans, padding: '6px 8px',
       boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
       justifyContent: 'space-between',

@@ -1,29 +1,33 @@
-// ANSI/ISA-101.01-2015 high-performance HMI palette.
+// Colours for the components drawn in JavaScript -- the pipeline canvas, the
+// unit mimic, the trends and the replay scrubber -- in Sentinel's ivory-ledger
+// inks (src/styles/sentinel.css holds the same values as CSS variables).
 //
-// The governing idea: the base display is grey and low-saturation, and COLOUR
-// IS RESERVED FOR ABNORMAL STATES. On a conventional colourful mimic an alarm
-// competes with the decoration; on this one, anything coloured is the only
-// thing coloured, and the eye goes straight to it.
+// The rule is the one ANSI/ISA-101 high-performance HMI practice and the
+// ledger share: the base is quiet, and COLOUR IS RESERVED FOR STATE. Red is
+// Bad, amber is Uncertain, green is asserted-good; nothing is coloured for
+// decoration, so anything coloured is the thing to look at.
 //
 // Four-level display hierarchy (§469):
 //   1 Plant overview   2 Unit overview   3 Unit detail (TSI)   4 Diagnostic
 export const isa = {
-  // Level 1-2 base: greys only.
-  background: '#f0f0ef',
-  panel: '#e4e4e2',
-  panelDark: '#d6d6d3',
-  line: '#a8a8a4',
-  lineStrong: '#6f6f6b',
-  text: '#26262a',
-  textDim: '#65656a',
-  // Process values are dark grey, not coloured. They are normal.
-  value: '#1c1c1f',
-  // Colour, used sparingly and only for states that need action.
-  bad: '#b3261e',        // Bad quality, alarm
-  uncertain: '#9a6700',  // Uncertain quality, warning
-  good: '#2f6f3e',       // used only where "confirmed good" must be asserted
-  running: '#3b5f8a',    // equipment energised
-  info: '#4a4a8a',
+  background: '#F5F1E8',   // paper
+  panel: '#FBF9F3',        // panel
+  panelDark: '#EFE9DA',    // wash
+  line: '#CBB97F',         // hairline
+  lineStrong: '#7A7260',   // muted
+  text: '#2A2418',         // ink
+  textDim: '#7A7260',      // muted
+  faint: '#A39B87',
+  gold: '#C9A84C',
+  // Process values are ink, not coloured. They are normal.
+  value: '#2A2418',
+  bad: '#8C3B2E',          // danger
+  uncertain: '#A9762B',    // warning
+  good: '#5B6E3A',         // success
+  running: '#5C6B7A',      // info: equipment energised
+  info: '#5C6B7A',
+  badWash: 'rgba(140, 59, 46, 0.12)',
+  uncertainWash: 'rgba(169, 118, 43, 0.12)',
 }
 
 export const qualityColour = (klass) => ({
@@ -32,5 +36,8 @@ export const qualityColour = (klass) => ({
   Bad: isa.bad,
 }[klass] ?? isa.textDim)
 
-export const mono = "ui-monospace, SFMono-Regular, Menlo, monospace"
-export const sans = "system-ui, -apple-system, 'Segoe UI', sans-serif"
+// Sentinel has no monospace face. Numbers, tags and timestamps are DM Sans at
+// tabular figures; the name is kept so existing components need no change.
+export const mono = "'DM Sans', system-ui, sans-serif"
+export const sans = "'DM Sans', system-ui, sans-serif"
+export const display = "'Cormorant Garamond', Georgia, serif"

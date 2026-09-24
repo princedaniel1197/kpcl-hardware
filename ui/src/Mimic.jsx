@@ -106,10 +106,10 @@ export default function Mimic({ values, unit = 'U1', assetCode = 'KPCL-RTPS-U1',
             textAnchor="middle">DRUM</text>
       {/* furnace: colour ONLY when fired, because that is a state worth seeing */}
       <rect x="62" y="160" width="76" height="70"
-            fill={lightup === null ? 'url(#unknown)' : lightup ? '#c9622a' : isa.panelDark}
+            fill={lightup === null ? 'url(#unknown)' : lightup ? isa.running : isa.panelDark}
             stroke={isa.lineStrong} opacity={lightup ? 0.85 : 1} />
       <text x="100" y="200" fontSize="9" textAnchor="middle" fontFamily={sans}
-            fill={lightup ? '#fff' : lightup === null ? isa.uncertain : isa.textDim}>
+            fill={lightup ? isa.panel : lightup === null ? isa.uncertain : isa.textDim}>
         {lightup === null ? '?' : lightup ? 'FIRING' : 'OFF'}
       </text>
 
@@ -189,7 +189,7 @@ export default function Mimic({ values, unit = 'U1', assetCode = 'KPCL-RTPS-U1',
               fill={isa.lineStrong} />
       )}
       <text x={306} y={238} fontSize="13" fontFamily={mono}
-            fill={loadFraction !== null && loadFraction > 0.35 ? '#fff'
+            fill={loadFraction !== null && loadFraction > 0.35 ? isa.panel
                   : mw === null ? isa.uncertain : isa.value}>
         {mw === null ? '- - - no value' : mw.toFixed(1)} MW
       </text>

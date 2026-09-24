@@ -150,6 +150,28 @@ and a token held from before the change is carried over. Checked in the browser:
 an existing session stayed signed in, a new tab opened signed in, no console
 errors.
 
+## Addendum — 24 September 2026: redesigned as a module of Sentinel
+
+The display now uses Sentinel's design system (https://kpcl.vercel.app), taken
+from Sentinel's source rather than imitated: its tokens, shell, grouped
+navigation, page furniture, ledgers and print CSS. The tabs became pages —
+Overview, asset tree, tag register, unit overview, trends, replay, bench rig,
+event frames, KPI register with lineage, collector & buffer, gaps, source
+health, data sources, settings. Every value now carries a quality chip, its
+source timestamp and a provenance chip (Real for the bench rig and the
+collector, Synthetic for the simulator); a Bad value is "—" with its decoded
+reason, an Uncertain one keeps its number in amber with its reason. The
+pipeline, whose particles move only on collector events, is unchanged and now
+lives on Collector & buffer. UI only: no change to the API, auth, collector,
+engine, archive, bridge or firmware.
+
+Checked by side-by-side screenshots against the live Sentinel at 1440 px and
+390 px (header, navigation, a table page, a detail page) and a print render;
+`ui/tests/values.test.jsx` asserts the value rules on the rendered components.
+The criterion is unchanged and still not attempted: a colleague who has not
+seen the display describes an outage and its recovery unaided — now on this
+display.
+
 ## Signature
 
 | Role | Name | Date |

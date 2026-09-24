@@ -16,6 +16,61 @@ subprotocol; it never appears in a URL. Revoke a token with
 Built last, deliberately. It hangs off real events from a working system; built
 first it would have been a nice interface over nothing.
 
+## A module of Sentinel
+
+Since 24 September 2026 CRPMS looks like a module of Sentinel
+(https://kpcl.vercel.app): the same ivory ledger, shell and components, taken
+from Sentinel's own source (`princedaniel1197/KPCL`, branch `sentinel-v2`, which
+is what the live site serves) rather than re-drawn from screenshots.
+
+- **One tokens file**, `src/styles/sentinel.css`: Sentinel's `globals.css`
+  unchanged, then a short block of CRPMS additions. Tailwind carries the same
+  palette (`tailwind.config.js`). Checked against the live site's computed
+  styles: DM Sans 14 px/21 px body, Cormorant Garamond 600 headings, ink
+  `#2A2418` on paper `#F5F1E8`, gold `#C9A84C` rules.
+- **No monospace face.** Sentinel has none — its numbers, tags and timestamps
+  are DM Sans with tabular figures — so neither does CRPMS. Tag-name titles
+  take Cormorant's lining figures, or "U1" reads "UI".
+- **Fonts are self-hosted** (`@fontsource`), as Sentinel's are through
+  `next/font`: no request to Google at runtime.
+- **The shell** (`src/components/Shell.jsx`) is Sentinel's: the 236 px ruled
+  sidebar with grouped navigation, the sticky header with a station and a
+  period selector and search, the drawer below 1024 px. Where Sentinel's header
+  ends with an English/ಕನ್ನಡ toggle, CRPMS's ends with the state of the live
+  stream: CRPMS's strings are not translated, and a toggle that changed nothing
+  would be a false control.
+- **The components** (`src/components/ui.jsx`) are Sentinel's `PageHeader`,
+  `Section`, `Kpi`, `Ledger`, `Chip`, `ProvenanceChip`, `Note`, `Folio` and
+  print bar, plus what CRPMS adds: `QualityChip`, `Value` and `Time`.
+- **Print**: Sentinel's print CSS. On paper CRPMS drops the sidebar and header
+  and takes the whole sheet; Sentinel prints its sidebar, which is the one
+  place the two deliberately differ.
+
+Pages: Overview · Asset tree and element folios · Tag register and tag folios ·
+Unit overview (mimic and TSI) · Trends · Replay · Bench rig · Event frames ·
+KPI register with lineage · Collector & buffer (the pipeline) · Gaps & losses ·
+Source health · Data sources · Settings. The station and period ride in the
+query string across every link, as Sentinel's do.
+
+## Every value carries its quality, time and provenance
+
+Wherever a value appears it shows the number and unit, a quality chip (Good,
+Uncertain, Bad — the numeric StatusCode decoded by name, from
+`src/lib/statusCodes.js`, generated from asyncua's table by
+`scripts/gen_status_codes.py`), the source timestamp (IST, with UTC on hover),
+and a provenance chip: **Real** for the bench rig's `RIG_*` tags and the
+collector's own measurements, **Synthetic** for the DCS simulator, the load
+test and the OMF demonstration. A **Bad** value is "—" with its reason, never a
+stale or zero number; an **Uncertain** value keeps its number, in amber, with
+its reason — for `RIG_CURRENT`, "uncalibrated - bench demo only". Colour
+signals state and nothing else: red Bad, amber Uncertain, green asserted-good.
+
+`npm test` checks these rules on the rendered components (`tests/values.test.jsx`)
+and would fail if a Bad value rendered a number, an Uncertain value lost its
+number or its note, a StatusCode decoded to the wrong name, or provenance were
+assigned against the rule. The dashboard's poll stays in `src/App.jsx` as
+`setInterval(poll, 2500)`, which is what FAT test T-03 reads.
+
 ## Every move a particle makes is an event
 
 A dot appears at the DCS because the collector emitted `value_received`, and
@@ -63,7 +118,8 @@ That socket sends and never receives: the collector still has no write path.
 
 ## The mimic follows ANSI/ISA-101.01-2015
 
-Grey, low-saturation base; **colour reserved for abnormal states**. On a
+A quiet base — now Sentinel's ivory and ink rather than grey — and **colour
+reserved for abnormal states**. On a
 conventional colourful mimic an alarm competes with the decoration; here,
 anything coloured is the only thing coloured. Of the standard's four-level
 display hierarchy, levels 2 and 3 are built — Unit Overview and Unit TSI

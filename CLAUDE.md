@@ -55,7 +55,7 @@ first pass, and do not defer them to "later".
 ## Stack
 
 Python 3.11+, asyncio throughout. FastAPI (no other web framework). TimescaleDB in Docker.
-React with React Flow for the pipeline view. ESP32 firmware in C++ using eModbus.
+React with React Flow for the pipeline view, styled as a module of Sentinel (Tailwind and Sentinel's own tokens; see `ui/README.md`). ESP32 firmware in C++ using eModbus.
 
 Libraries: `asyncua`, `pymodbus`, `psycopg[binary]`, `fastapi`, `uvicorn`, `pydantic`, `numpy`.
 
